@@ -44,15 +44,16 @@ npm run dev
 
 1. Create Pages project (Git connect or direct deploy).
 2. Add D1 binding named `DB` to the Pages project.
-3. For remote DB schema:
+3. Add Pages secret `OPENAI_API_KEY` if using AI recipe import.
+4. For remote DB schema:
 
 ```bash
 npx wrangler d1 migrations apply backstrap-lab-db --remote
 ```
 
-4. Build command in Pages: `npm run build`
-5. Output directory: `.svelte-kit/cloudflare`
-6. Deploy command (optional direct):
+5. Build command in Pages: `npm run build`
+6. Output directory: `.svelte-kit/cloudflare`
+7. Deploy command (optional direct):
 
 ```bash
 npx wrangler pages deploy .svelte-kit/cloudflare --project-name backstrap-lab
@@ -64,6 +65,7 @@ npx wrangler pages deploy .svelte-kit/cloudflare --project-name backstrap-lab
 npm run check
 npm run build
 npx wrangler types
+npx wrangler pages secret put OPENAI_API_KEY --project-name backstrap-lab
 ```
 
 ## Data model summary

@@ -5,6 +5,7 @@ declare global {
     interface Platform {
       env: {
         DB: D1Database;
+        OPENAI_API_KEY?: string;
       };
     }
   }
