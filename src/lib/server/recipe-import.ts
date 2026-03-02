@@ -47,6 +47,8 @@ export async function importRecipeFromText(params: {
   apiKey: string;
   recipeText: string;
 }): Promise<NormalizedImportedRecipe> {
+  const detected = detectMeatWeightFromText(params.recipeText);
+
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
@@ -73,6 +75,7 @@ export async function importRecipeFromText(params: {
                 'Do NOT default base meat weight.',
                 'If explicit meat weight is missing but there is a meat description (example: \"1 deer front leg\"), estimate grams as best as possible.',
                 'If neither explicit weight nor a usable meat description exists, set meat_weight_basis to \"missing\" and base_meat_grams to null.',
+                `Pre-detected meat signal: ${detected.baseMeatGrams ? `${detected.baseMeatGrams}g (${detected.note})` : 'none'}. Use this if consistent with the text.`,
                 'Units allowed: g, ml, tsp, tbsp.',
                 'Return cuts array and ingredients array.',
                 'Recipe text:',
@@ -159,7 +162,7 @@ export async function importRecipeFromText(params: {
 
   const rawJson = payload.output_text ?? '{}';
   const parsed = safeParseRecipeDraft(rawJson);
-  return normalizeDraft(parsed);
+  return normalizeDraft(parsed, detected);
 }
 
 function safeParseRecipeDraft(json: string): ImportedRecipeDraft {
@@ -203,14 +206,27 @@ function safeParseRecipeDraft(json: string): ImportedRecipeDraft {
   };
 }
 
-function normalizeDraft(draft: ImportedRecipeDraft): NormalizedImportedRecipe {
+function normalizeDraft(
+  draft: ImportedRecipeDraft,
+  detected: { baseMeatGrams: number | null; note: string; meatDescription: string }
+): NormalizedImportedRecipe {
   const title = draft.title || 'Imported Recipe';
-  const basis = draft.meat_weight_basis;
-  const hasDescription = Boolean(draft.meat_description);
+  let basis = draft.meat_weight_basis;
+  let hasDescription = Boolean(draft.meat_description);
   const baseMeatGrams =
     draft.base_meat_grams === null ? null : clampPositive(Math.round(draft.base_meat_grams), null);
+  let resolvedBaseMeatGrams = baseMeatGrams;
+  let resolvedNote = draft.meat_weight_note;
 
-  if (basis === 'missing' || baseMeatGrams === null) {
+  // Deterministic fallback: explicit weight patterns from raw text should always win over model miss.
+  if (resolvedBaseMeatGrams === null && detected.baseMeatGrams !== null) {
+    resolvedBaseMeatGrams = detected.baseMeatGrams;
+    basis = 'explicit';
+    hasDescription = true;
+    resolvedNote = `Detected from text: ${detected.note}`;
+  }
+
+  if (basis === 'missing' || resolvedBaseMeatGrams === null) {
     if (!hasDescription) {
       throw new Error(
         'Import failed: no meat weight or meat description found. Please include a weight (grams/lb) or a describable cut/portion.'
@@ -247,10 +263,10 @@ function normalizeDraft(draft: ImportedRecipeDraft): NormalizedImportedRecipe {
     title,
     description: draft.description,
     tags: draft.tags,
-    baseMeatGrams,
+    baseMeatGrams: resolvedBaseMeatGrams,
     baseAnimal: draft.base_animal,
     meatWeightBasis: basis === 'estimated_from_description' ? 'estimated_from_description' : 'explicit',
-    meatWeightNote: draft.meat_weight_note,
+    meatWeightNote: resolvedNote,
     cuts: draft.cuts.filter(Boolean),
     ingredients
   };
@@ -274,4 +290,75 @@ function toWeightBasis(value: unknown): ImportedRecipeDraft['meat_weight_basis']
   const v = String(value ?? '').trim();
   if (v === 'explicit' || v === 'estimated_from_description' || v === 'missing') return v;
   return 'missing';
+}
+
+function detectMeatWeightFromText(text: string): {
+  baseMeatGrams: number | null;
+  note: string;
+  meatDescription: string;
+} {
+  const meatKeywords = [
+    'venison',
+    'deer',
+    'elk',
+    'moose',
+    'antelope',
+    'boar',
+    'pork',
+    'beef',
+    'bison',
+    'lamb',
+    'goat',
+    'turkey',
+    'duck',
+    'goose',
+    'chicken',
+    'pheasant',
+    'rabbit',
+    'leg',
+    'shoulder',
+    'loin',
+    'backstrap',
+    'fat'
+  ];
+  const nonMeatKeywords = ['cheddar', 'cheese', 'jalapeno', 'salt', 'pepper', 'paprika', 'garlic', 'onion'];
+
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim().toLowerCase())
+    .filter(Boolean);
+
+  let totalGrams = 0;
+  const matched: string[] = [];
+
+  for (const line of lines) {
+    if (!meatKeywords.some((keyword) => line.includes(keyword))) continue;
+    if (nonMeatKeywords.some((keyword) => line.includes(keyword))) continue;
+
+    const pattern = /(\d+(?:\.\d+)?)\s*(lb|lbs|pound|pounds|kg|g|gram|grams)\b/g;
+    let m: RegExpExecArray | null = null;
+    while ((m = pattern.exec(line)) !== null) {
+      const value = Number(m[1]);
+      const unit = m[2];
+      if (!Number.isFinite(value) || value <= 0) continue;
+
+      let grams = 0;
+      if (unit.startsWith('lb') || unit.startsWith('pound')) grams = value * 453.59237;
+      else if (unit === 'kg') grams = value * 1000;
+      else grams = value;
+
+      totalGrams += grams;
+      matched.push(`${value} ${unit} (${line})`);
+    }
+  }
+
+  if (totalGrams <= 0) {
+    return { baseMeatGrams: null, note: '', meatDescription: '' };
+  }
+
+  return {
+    baseMeatGrams: Math.round(totalGrams),
+    note: matched.join('; '),
+    meatDescription: matched.join('; ')
+  };
 }
