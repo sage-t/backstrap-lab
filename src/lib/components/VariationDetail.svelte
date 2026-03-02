@@ -1,12 +1,14 @@
 <script lang="ts">
-  import type { ScaledIngredient } from '$lib/scaling';
+  import type { DisplayUnit, ScaledIngredient } from '$lib/scaling';
 
   let {
     variation,
     scaled,
     recipeCuts,
     variationCuts,
-    notes
+    notes,
+    variationIngredients,
+    ingredientCatalog
   }: {
     variation: {
       id: number;
@@ -22,7 +24,22 @@
     recipeCuts: Array<{ id: number; cut_name: string }>;
     variationCuts: Array<{ id: number; cut_name: string }>;
     notes: Array<{ id: number; note_text: string; rating: number | null; created_at: string }>;
+    variationIngredients: Array<{
+      id: number;
+      ingredientId: number;
+      ingredientName: string;
+      amountGramsPerBase: number | null;
+      amountMlPerBase: number | null;
+      displayUnitOverride: DisplayUnit | null;
+      sort_order: number;
+      defaultDisplayUnit: DisplayUnit;
+    }>;
+    ingredientCatalog: Array<{ id: number; name: string; default_display_unit: DisplayUnit }>;
   } = $props();
+
+  const confirmDelete = (event: SubmitEvent, message: string) => {
+    if (!confirm(message)) event.preventDefault();
+  };
 </script>
 
 <section class="card stack">
@@ -47,6 +64,13 @@
     </label>
     <button type="submit" class="primary">Update variation</button>
   </form>
+  <form
+    method="POST"
+    action="?/deleteVariation"
+    onsubmit={(event) => confirmDelete(event, 'Delete this variation?')}
+  >
+    <button type="submit">Delete variation</button>
+  </form>
 </section>
 
 <section class="card stack">
@@ -64,13 +88,107 @@
 </section>
 
 <section class="card stack">
+  <h2>Ratio overrides for this variation</h2>
+  <p class="warning">These override base recipe ratios for this variation only.</p>
+
+  {#if variationIngredients.length === 0}
+    <p>No overrides yet.</p>
+  {:else}
+    {#each variationIngredients as row}
+      <form method="POST" action="?/upsertRatioOverride" class="ratio-row">
+        <input type="hidden" name="id" value={row.id} />
+        <select name="ingredient_id" value={row.ingredientId}>
+          {#each ingredientCatalog as ingredient}
+            <option value={ingredient.id}>{ingredient.name}</option>
+          {/each}
+        </select>
+        <select name="ratio_type" value={row.amountGramsPerBase !== null ? 'g' : 'ml'}>
+          <option value="g">grams/base</option>
+          <option value="ml">ml/base</option>
+        </select>
+        <input
+          name="amount"
+          type="number"
+          step="0.01"
+          required
+          value={row.amountGramsPerBase ?? row.amountMlPerBase ?? ''}
+        />
+        <select name="display_unit_override" value={row.displayUnitOverride ?? ''}>
+          <option value="">default ({row.defaultDisplayUnit})</option>
+          <option value="g">g</option>
+          <option value="ml">ml</option>
+          <option value="tsp">tsp</option>
+          <option value="tbsp">tbsp</option>
+        </select>
+        <input name="sort_order" type="number" value={row.sort_order} />
+        <button type="submit">Save</button>
+        <button
+          type="submit"
+          formaction="?/deleteRatioOverride"
+          onclick={(event) => {
+            if (!confirm('Delete this ratio override?')) event.preventDefault();
+          }}>Delete</button
+        >
+      </form>
+    {/each}
+  {/if}
+
+  <form method="POST" action="?/upsertRatioOverride" class="stack">
+    <h3>Add override</h3>
+    <label>
+      Existing ingredient
+      <select name="ingredient_id">
+        <option value="">Create inline below</option>
+        {#each ingredientCatalog as ingredient}
+          <option value={ingredient.id}>{ingredient.name}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      New ingredient name (if creating)
+      <input name="new_ingredient_name" />
+    </label>
+    <label>
+      New ingredient default unit
+      <select name="new_ingredient_unit">
+        <option value="g">g</option>
+        <option value="ml">ml</option>
+        <option value="tsp">tsp</option>
+        <option value="tbsp">tbsp</option>
+      </select>
+    </label>
+    <div class="ratio-row add">
+      <select name="ratio_type">
+        <option value="g">grams/base</option>
+        <option value="ml">ml/base</option>
+      </select>
+      <input name="amount" type="number" step="0.01" required />
+      <select name="display_unit_override">
+        <option value="">default</option>
+        <option value="g">g</option>
+        <option value="ml">ml</option>
+        <option value="tsp">tsp</option>
+        <option value="tbsp">tbsp</option>
+      </select>
+      <input name="sort_order" type="number" value="10" />
+      <button type="submit">Add override</button>
+    </div>
+  </form>
+</section>
+
+<section class="card stack">
   <h2>Cuts</h2>
   <p>Recipe cuts: {recipeCuts.map((c) => c.cut_name).join(', ') || 'none'}</p>
   <ul>
     {#each variationCuts as cut}
       <li>
         {cut.cut_name}
-        <form method="POST" action="?/deleteCut" style="display:inline">
+        <form
+          method="POST"
+          action="?/deleteCut"
+          style="display:inline"
+          onsubmit={(event) => confirmDelete(event, 'Delete this variation cut?')}
+        >
           <input type="hidden" name="cut_id" value={cut.id} />
           <button type="submit">remove</button>
         </form>
@@ -106,3 +224,23 @@
     {/each}
   </ul>
 </section>
+
+<style>
+  .ratio-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr 0.7fr auto auto;
+    gap: 0.5rem;
+    align-items: end;
+  }
+
+  .ratio-row.add {
+    grid-template-columns: 1fr 1fr 1fr 0.7fr auto;
+  }
+
+  @media (max-width: 900px) {
+    .ratio-row,
+    .ratio-row.add {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

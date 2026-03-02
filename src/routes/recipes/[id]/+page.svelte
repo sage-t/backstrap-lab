@@ -4,9 +4,26 @@
   import VariationsList from '$lib/components/VariationsList.svelte';
 
   let { data } = $props();
+
+  const confirmDelete = (event: SubmitEvent, message: string) => {
+    if (!confirm(message)) event.preventDefault();
+  };
 </script>
 
 <RecipeEditor action="?/updateRecipe" recipe={data.recipe} submitLabel="Save recipe" />
+
+<section class="card stack">
+  <p class="warning">
+    Changing base meat grams auto-scales all recipe ingredient per-base amounts to preserve concentration.
+  </p>
+  <form
+    method="POST"
+    action="?/deleteRecipe"
+    onsubmit={(event) => confirmDelete(event, 'Delete this recipe and all its variations?')}
+  >
+    <button type="submit">Delete recipe</button>
+  </form>
+</section>
 
 <section class="card stack">
   <h2>Cuts</h2>
@@ -14,7 +31,12 @@
     {#each data.cuts as cut}
       <li>
         {cut.cut_name}
-        <form method="POST" action="?/deleteCut" style="display:inline">
+        <form
+          method="POST"
+          action="?/deleteCut"
+          style="display:inline"
+          onsubmit={(event) => confirmDelete(event, 'Delete this cut?')}
+        >
           <input type="hidden" name="cut_id" value={cut.id} />
           <button type="submit">remove</button>
         </form>
@@ -52,4 +74,4 @@
   </form>
 </section>
 
-<VariationsList variations={data.variations} />
+<VariationsList variations={data.variations} allowDelete={true} />

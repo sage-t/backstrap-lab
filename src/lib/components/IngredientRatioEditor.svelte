@@ -19,6 +19,10 @@
       default_display_unit: DisplayUnit;
     }>;
   } = $props();
+
+  const confirmDelete = (event: Event) => {
+    if (!confirm('Delete this ingredient ratio?')) event.preventDefault();
+  };
 </script>
 
 <section class="card stack">
@@ -62,7 +66,7 @@
       <input name="sort_order" type="number" value={row.sort_order} />
 
       <button type="submit">Update</button>
-      <button type="submit" formaction="?/deleteIngredient">Delete</button>
+      <button type="submit" formaction="?/deleteIngredient" onclick={confirmDelete}>Delete</button>
     </form>
   {/each}
 

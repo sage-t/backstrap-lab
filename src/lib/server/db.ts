@@ -58,6 +58,33 @@ export async function createRecipe(db: D1Database, input: RecipeCoreInput): Prom
 }
 
 export async function updateRecipe(db: D1Database, recipeId: number, input: RecipeCoreInput) {
+  const existing = await queryFirst<{ base_meat_grams: number }>(
+    db,
+    `SELECT base_meat_grams FROM recipes WHERE id = ? AND user_id = ?`,
+    recipeId,
+    USER_ID
+  );
+  if (!existing) return;
+
+  const nextBase = Math.max(1, Math.round(input.baseMeatGrams));
+  const previousBase = Math.max(1, Math.round(existing.base_meat_grams));
+  if (nextBase !== previousBase) {
+    const factor = nextBase / previousBase;
+    await exec(
+      db,
+      `UPDATE recipe_ingredients
+       SET
+         amount_grams_per_base = CASE WHEN amount_grams_per_base IS NULL THEN NULL ELSE amount_grams_per_base * ? END,
+         amount_ml_per_base = CASE WHEN amount_ml_per_base IS NULL THEN NULL ELSE amount_ml_per_base * ? END
+       WHERE recipe_id = ?
+         AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)`,
+      factor,
+      factor,
+      recipeId,
+      USER_ID
+    );
+  }
+
   await exec(
     db,
     `UPDATE recipes
@@ -66,12 +93,16 @@ export async function updateRecipe(db: D1Database, recipeId: number, input: Reci
     input.title,
     input.description,
     JSON.stringify(input.tags),
-    Math.max(1, Math.round(input.baseMeatGrams)),
+    nextBase,
     input.baseAnimal || null,
     nowIso(),
     recipeId,
     USER_ID
   );
+}
+
+export async function deleteRecipe(db: D1Database, recipeId: number) {
+  await exec(db, `DELETE FROM recipes WHERE id = ? AND user_id = ?`, recipeId, USER_ID);
 }
 
 export async function getRecipeDetail(db: D1Database, recipeId: number) {
@@ -295,6 +326,22 @@ export async function createVariation(db: D1Database, input: {
   return Number(run.meta.last_row_id);
 }
 
+export async function deleteVariation(db: D1Database, variationId: number, recipeId?: number) {
+  if (recipeId) {
+    await exec(
+      db,
+      `DELETE FROM variations
+       WHERE id = ? AND recipe_id = ? AND user_id = ?`,
+      variationId,
+      recipeId,
+      USER_ID
+    );
+    return;
+  }
+
+  await exec(db, `DELETE FROM variations WHERE id = ? AND user_id = ?`, variationId, USER_ID);
+}
+
 export async function getVariationDetail(db: D1Database, variationId: number) {
   const variation = await queryFirst<{
     id: number;
@@ -340,6 +387,35 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
     USER_ID,
     USER_ID
   );
+
+  const variationIngredients = await queryAll<
+    ScaleInputRow & { id: number; sort_order: number; ingredientId: number; ingredientName: string }
+  >(
+    db,
+    `SELECT vi.id,
+            vi.sort_order,
+            i.id AS ingredientId,
+            i.name AS ingredientName,
+            vi.amount_grams_per_base AS amountGramsPerBase,
+            vi.amount_ml_per_base AS amountMlPerBase,
+            i.default_display_unit AS defaultDisplayUnit,
+            vi.display_unit_override AS displayUnitOverride,
+            ic.grams_per_ml AS gramsPerMl,
+            ic.grams_per_tsp AS gramsPerTsp
+     FROM variation_ingredients vi
+     JOIN variations v ON v.id = vi.variation_id
+     JOIN recipes r ON r.id = v.recipe_id
+     JOIN ingredients i ON i.id = vi.ingredient_id
+     LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
+     WHERE vi.variation_id = ? AND v.user_id = ? AND r.user_id = ? AND i.user_id = ?
+     ORDER BY vi.sort_order ASC, vi.id ASC`,
+    variationId,
+    USER_ID,
+    USER_ID,
+    USER_ID
+  );
+
+  const mergedIngredientRows = mergeIngredientRows(recipeIngredients, variationIngredients);
 
   const recipeCuts = await queryAll<{ id: number; cut_name: string }>(
     db,
@@ -394,7 +470,9 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
       meatGrams: variation.meat_grams,
       animalOverride: variation.animal_override ?? ''
     },
+    scaledIngredientRows: mergedIngredientRows,
     recipeIngredients,
+    variationIngredients,
     recipeCuts,
     variationCuts,
     notes
@@ -451,6 +529,72 @@ export async function addVariationNote(db: D1Database, variationId: number, note
     noteText,
     rating,
     nowIso(),
+    variationId,
+    USER_ID
+  );
+}
+
+export async function upsertVariationIngredient(db: D1Database, input: {
+  variationId: number;
+  id?: number;
+  ingredientId: number;
+  amountGramsPerBase: number | null;
+  amountMlPerBase: number | null;
+  displayUnitOverride: DisplayUnit | null;
+  sortOrder: number;
+}) {
+  if (input.id) {
+    await exec(
+      db,
+      `UPDATE variation_ingredients
+       SET ingredient_id = ?, amount_grams_per_base = ?, amount_ml_per_base = ?, display_unit_override = ?, sort_order = ?
+       WHERE id = ? AND variation_id = ?
+         AND EXISTS (SELECT 1 FROM variations v WHERE v.id = variation_id AND v.user_id = ?)`,
+      input.ingredientId,
+      input.amountGramsPerBase,
+      input.amountMlPerBase,
+      input.displayUnitOverride,
+      input.sortOrder,
+      input.id,
+      input.variationId,
+      USER_ID
+    );
+    return;
+  }
+
+  await exec(
+    db,
+    `INSERT INTO variation_ingredients (variation_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
+     SELECT v.id, ?, ?, ?, ?, ?
+     FROM variations v
+     JOIN recipes r ON r.id = v.recipe_id
+     JOIN ingredients i ON i.id = ?
+     WHERE v.id = ? AND v.user_id = ? AND r.user_id = ? AND i.user_id = ?
+     ON CONFLICT(variation_id, ingredient_id) DO UPDATE SET
+       amount_grams_per_base = excluded.amount_grams_per_base,
+       amount_ml_per_base = excluded.amount_ml_per_base,
+       display_unit_override = excluded.display_unit_override,
+       sort_order = excluded.sort_order`,
+    input.ingredientId,
+    input.amountGramsPerBase,
+    input.amountMlPerBase,
+    input.displayUnitOverride,
+    input.sortOrder,
+    input.ingredientId,
+    input.variationId,
+    USER_ID,
+    USER_ID,
+    USER_ID
+  );
+}
+
+export async function deleteVariationIngredient(db: D1Database, variationId: number, id: number) {
+  await exec(
+    db,
+    `DELETE FROM variation_ingredients
+     WHERE id = ? AND variation_id = ?
+       AND EXISTS (SELECT 1 FROM variations v WHERE v.id = variation_id AND v.user_id = ?)`,
+    id,
     variationId,
     USER_ID
   );
@@ -602,4 +746,37 @@ function parseTags(raw: string | null): string[] {
     return [];
   }
   return [];
+}
+
+function mergeIngredientRows(
+  recipeRows: ScaleInputRow[],
+  variationRows: Array<ScaleInputRow & { ingredientId: number; ingredientName: string; sort_order: number }>
+): ScaleInputRow[] {
+  const byIngredient = new Map<number, ScaleInputRow>();
+  for (const row of recipeRows) byIngredient.set(row.ingredientId, row);
+
+  for (const override of variationRows) {
+    const base = byIngredient.get(override.ingredientId);
+    byIngredient.set(override.ingredientId, {
+      ingredientId: override.ingredientId,
+      ingredientName: override.ingredientName,
+      amountGramsPerBase: override.amountGramsPerBase,
+      amountMlPerBase: override.amountMlPerBase,
+      defaultDisplayUnit: override.defaultDisplayUnit,
+      displayUnitOverride: override.displayUnitOverride ?? base?.displayUnitOverride ?? null,
+      gramsPerMl: override.gramsPerMl,
+      gramsPerTsp: override.gramsPerTsp
+    });
+  }
+
+  const variationOrder = new Map<number, number>();
+  variationRows.forEach((row, idx) => variationOrder.set(row.ingredientId, row.sort_order ?? idx + 1));
+  const recipeOrder = new Map<number, number>();
+  recipeRows.forEach((row, idx) => recipeOrder.set(row.ingredientId, idx + 1));
+
+  return Array.from(byIngredient.values()).sort((a, b) => {
+    const aOrder = variationOrder.get(a.ingredientId) ?? recipeOrder.get(a.ingredientId) ?? 9999;
+    const bOrder = variationOrder.get(b.ingredientId) ?? recipeOrder.get(b.ingredientId) ?? 9999;
+    return aOrder - bOrder || a.ingredientName.localeCompare(b.ingredientName);
+  });
 }

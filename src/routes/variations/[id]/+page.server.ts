@@ -3,11 +3,18 @@ import type { Actions, PageServerLoad } from './$types';
 import {
   addVariationCut,
   addVariationNote,
+  deleteVariation as removeVariation,
   deleteVariationCut,
+  deleteVariationIngredient,
+  ensureIngredient,
   getVariationDetail,
+  listIngredients,
+  upsertVariationIngredient,
   updateVariation
 } from '$lib/server/db';
-import { scaleIngredients } from '$lib/scaling';
+import { scaleIngredients, type DisplayUnit } from '$lib/scaling';
+
+const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
 
 export const load: PageServerLoad = async ({ params, platform }) => {
   if (!platform?.env?.DB) throw error(500, 'DB binding missing');
@@ -17,10 +24,11 @@ export const load: PageServerLoad = async ({ params, platform }) => {
   const scaled = scaleIngredients({
     baseMeatGrams: detail.variation.baseMeatGrams,
     targetMeatGrams: detail.variation.meatGrams,
-    rows: detail.recipeIngredients
+    rows: detail.scaledIngredientRows
   });
 
-  return { ...detail, scaled };
+  const ingredientCatalog = await listIngredients(platform.env.DB);
+  return { ...detail, scaled, ingredientCatalog };
 };
 
 export const actions: Actions = {
@@ -55,5 +63,49 @@ export const actions: Actions = {
     if (!noteText) return { success: false };
     await addVariationNote(platform.env.DB, Number(params.id), noteText, rating);
     return { success: true };
+  },
+  upsertRatioOverride: async ({ request, params, platform }) => {
+    if (!platform?.env?.DB) return { success: false };
+    const form = await request.formData();
+    const ingredientIdRaw = String(form.get('ingredient_id') ?? '').trim();
+    const newName = String(form.get('new_ingredient_name') ?? '').trim();
+    const unitRaw = String(form.get('new_ingredient_unit') ?? 'g');
+    const ratioType = String(form.get('ratio_type') ?? 'g');
+    const amount = Number(form.get('amount') ?? 0);
+    const overrideRaw = String(form.get('display_unit_override') ?? '').trim();
+
+    let ingredientId = ingredientIdRaw ? Number(ingredientIdRaw) : 0;
+    if (!ingredientId) {
+      if (!newName) return { success: false, message: 'Pick ingredient or create new one' };
+      ingredientId = await ensureIngredient(
+        platform.env.DB,
+        newName,
+        isDisplayUnit(unitRaw) ? unitRaw : 'g'
+      );
+    }
+
+    await upsertVariationIngredient(platform.env.DB, {
+      id: form.get('id') ? Number(form.get('id')) : undefined,
+      variationId: Number(params.id),
+      ingredientId,
+      amountGramsPerBase: ratioType === 'g' ? amount : null,
+      amountMlPerBase: ratioType === 'ml' ? amount : null,
+      displayUnitOverride: isDisplayUnit(overrideRaw) ? overrideRaw : null,
+      sortOrder: Number(form.get('sort_order') ?? 10)
+    });
+    return { success: true };
+  },
+  deleteRatioOverride: async ({ request, params, platform }) => {
+    if (!platform?.env?.DB) return { success: false };
+    const form = await request.formData();
+    await deleteVariationIngredient(platform.env.DB, Number(params.id), Number(form.get('id')));
+    return { success: true };
+  },
+  deleteVariation: async ({ params, platform }) => {
+    if (!platform?.env?.DB) return { success: false };
+    const detail = await getVariationDetail(platform.env.DB, Number(params.id));
+    if (!detail) return { success: false };
+    await removeVariation(platform.env.DB, Number(params.id));
+    throw redirect(303, `/recipes/${detail.variation.recipeId}`);
   }
 };

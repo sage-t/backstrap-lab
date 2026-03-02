@@ -9,4 +9,6 @@
   recipeCuts={data.recipeCuts}
   variationCuts={data.variationCuts}
   notes={data.notes}
+  variationIngredients={data.variationIngredients}
+  ingredientCatalog={data.ingredientCatalog}
 />

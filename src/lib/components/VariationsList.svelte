@@ -1,6 +1,7 @@
 <script lang="ts">
   let {
-    variations
+    variations,
+    allowDelete = false
   }: {
     variations: Array<{
       id: number;
@@ -9,7 +10,12 @@
       animal_override: string | null;
       note_count: number;
     }>;
+    allowDelete?: boolean;
   } = $props();
+
+  const confirmDelete = (event: SubmitEvent) => {
+    if (!confirm('Delete this variation?')) event.preventDefault();
+  };
 </script>
 
 <section class="card stack">
@@ -34,7 +40,15 @@
             <td>{row.meat_grams}</td>
             <td>{row.animal_override ?? '-'}</td>
             <td>{row.note_count}</td>
-            <td><a href={`/variations/${row.id}`}>Open</a></td>
+            <td>
+              <a href={`/variations/${row.id}`}>Open</a>
+              {#if allowDelete}
+                <form method="POST" action="?/deleteVariation" class="inline" onsubmit={confirmDelete}>
+                  <input type="hidden" name="variation_id" value={row.id} />
+                  <button type="submit">Delete</button>
+                </form>
+              {/if}
+            </td>
           </tr>
         {/each}
       </tbody>
@@ -54,5 +68,10 @@
     text-align: left;
     padding: 0.4rem;
     font-size: 0.92rem;
+  }
+
+  .inline {
+    display: inline;
+    margin-left: 0.4rem;
   }
 </style>

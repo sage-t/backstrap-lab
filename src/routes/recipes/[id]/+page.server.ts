@@ -3,8 +3,10 @@ import type { Actions, PageServerLoad } from './$types';
 import {
   addRecipeCut,
   createVariation,
+  deleteRecipe as removeRecipe,
   deleteRecipeCut,
   deleteRecipeIngredient,
+  deleteVariation,
   ensureIngredient,
   getRecipeDetail,
   listIngredients,
@@ -136,5 +138,18 @@ export const actions: Actions = {
     });
 
     throw redirect(303, `/variations/${id}`);
+  },
+
+  deleteVariation: async ({ request, params, platform }) => {
+    if (!platform?.env?.DB) return { success: false };
+    const form = await request.formData();
+    await deleteVariation(platform.env.DB, Number(form.get('variation_id')), Number(params.id));
+    return { success: true };
+  },
+
+  deleteRecipe: async ({ params, platform }) => {
+    if (!platform?.env?.DB) return { success: false };
+    await removeRecipe(platform.env.DB, Number(params.id));
+    throw redirect(303, '/');
   }
 };
