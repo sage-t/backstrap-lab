@@ -1,0 +1,7 @@
+node_modules
+.svelte-kit
+.wrangler
+.cloudflare
+dist
+.env
+.dev.vars
