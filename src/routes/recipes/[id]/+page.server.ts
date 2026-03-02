@@ -130,12 +130,21 @@ export const actions: Actions = {
   createVariation: async ({ request, params, platform }) => {
     if (!platform?.env?.DB) return { success: false };
     const form = await request.formData();
-    const id = await createVariation(platform.env.DB, {
-      recipeId: Number(params.id),
-      cookedAt: String(form.get('cooked_at') ?? new Date().toISOString().slice(0, 10)),
-      meatGrams: Number(form.get('meat_grams') ?? 1000),
-      animalOverride: String(form.get('animal_override') ?? '').trim()
-    });
+    const parentRaw = String(form.get('parent_variation_id') ?? '').trim();
+    const ratingRaw = String(form.get('rating') ?? '').trim();
+    let id: number;
+    try {
+      id = await createVariation(platform.env.DB, {
+        recipeId: Number(params.id),
+        cookedAt: String(form.get('cooked_at') ?? new Date().toISOString().slice(0, 10)),
+        meatGrams: Number(form.get('meat_grams') ?? 1000),
+        animalOverride: String(form.get('animal_override') ?? '').trim(),
+        parentVariationId: parentRaw ? Number(parentRaw) : null,
+        rating: ratingRaw ? Number(ratingRaw) : null
+      });
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : 'Failed to create variation' };
+    }
 
     throw redirect(303, `/variations/${id}`);
   },

@@ -1,6 +1,6 @@
 <script lang="ts">
   import VariationDetail from '$lib/components/VariationDetail.svelte';
-  let { data } = $props();
+  let { data, form } = $props();
 </script>
 
 <VariationDetail
@@ -12,3 +12,9 @@
   variationIngredients={data.variationIngredients}
   ingredientCatalog={data.ingredientCatalog}
 />
+
+{#if form?.message}
+  <section class="card stack">
+    <p class="warning">{form.message}</p>
+  </section>
+{/if}

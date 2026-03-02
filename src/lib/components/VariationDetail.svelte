@@ -14,11 +14,14 @@
       id: number;
       recipeId: number;
       recipeTitle: string;
+      recipeRevisionId: number;
       baseMeatGrams: number;
       baseAnimal: string;
       cookedAt: string;
       meatGrams: number;
       animalOverride: string;
+      parentVariationId: number | null;
+      rating: number | null;
     };
     scaled: ScaledIngredient[];
     recipeCuts: Array<{ id: number; cut_name: string }>;
@@ -48,6 +51,10 @@
     Base: {variation.baseMeatGrams}g
     {#if variation.baseAnimal}({variation.baseAnimal}){/if}
   </p>
+  <p>
+    Parent variation: {variation.parentVariationId ?? 'none'} | Rating: {variation.rating ?? '-'}
+  </p>
+  <p>Recipe revision: {variation.recipeRevisionId}</p>
 
   <form method="POST" action="?/updateVariation" class="stack">
     <label>
@@ -62,7 +69,32 @@
       Animal override
       <input name="animal_override" value={variation.animalOverride} />
     </label>
+    <label>
+      Variation rating (optional 1-5)
+      <input type="number" min="1" max="5" name="rating" value={variation.rating ?? ''} />
+    </label>
     <button type="submit" class="primary">Update variation</button>
+  </form>
+
+  <form method="POST" action="?/createChildVariation" class="stack">
+    <h3>Create child variation</h3>
+    <label>
+      Cooked at
+      <input type="date" name="cooked_at" value={variation.cookedAt.slice(0, 10)} required />
+    </label>
+    <label>
+      Meat grams
+      <input type="number" name="meat_grams" min="1" value={variation.meatGrams} required />
+    </label>
+    <label>
+      Animal override
+      <input name="animal_override" value={variation.animalOverride} />
+    </label>
+    <label>
+      Rating (optional 1-5)
+      <input type="number" min="1" max="5" name="rating" />
+    </label>
+    <button type="submit">Create child variation</button>
   </form>
   <form
     method="POST"

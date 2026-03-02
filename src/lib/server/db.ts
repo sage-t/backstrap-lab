@@ -39,12 +39,116 @@ export async function listRecipes(db: D1Database, q: string) {
   );
 }
 
+async function getCurrentRevisionSnapshot(
+  db: D1Database,
+  recipeId: number
+): Promise<{
+  recipeId: number;
+  revisionId: number;
+  title: string;
+  description: string;
+  tagsJson: string;
+  baseMeatGrams: number;
+  baseAnimal: string | null;
+} | null> {
+  return queryFirst<{
+    recipeId: number;
+    revisionId: number;
+    title: string;
+    description: string | null;
+    tagsJson: string | null;
+    baseMeatGrams: number;
+    baseAnimal: string | null;
+  }>(
+    db,
+    `SELECT r.id AS recipeId,
+            rr.id AS revisionId,
+            rr.title AS title,
+            rr.description AS description,
+            rr.tags_json AS tagsJson,
+            rr.base_meat_grams AS baseMeatGrams,
+            rr.base_animal AS baseAnimal
+     FROM recipes r
+     JOIN recipe_revisions rr ON rr.id = r.current_revision_id
+     WHERE r.id = ? AND r.user_id = ?`,
+    recipeId,
+    USER_ID
+  ).then((row) =>
+    row
+      ? {
+          recipeId: row.recipeId,
+          revisionId: row.revisionId,
+          title: row.title,
+          description: row.description ?? '',
+          tagsJson: row.tagsJson ?? '[]',
+          baseMeatGrams: row.baseMeatGrams,
+          baseAnimal: row.baseAnimal
+        }
+      : null
+  );
+}
+
+async function forkCurrentRevision(db: D1Database, recipeId: number): Promise<number> {
+  const current = await getCurrentRevisionSnapshot(db, recipeId);
+  if (!current) throw new Error('Recipe current revision not found');
+  const ts = nowIso();
+
+  const created = await exec(
+    db,
+    `INSERT INTO recipe_revisions (recipe_id, user_id, title, description, tags_json, base_meat_grams, base_animal, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    recipeId,
+    USER_ID,
+    current.title,
+    current.description,
+    current.tagsJson,
+    current.baseMeatGrams,
+    current.baseAnimal,
+    ts
+  );
+  const newRevisionId = Number(created.meta.last_row_id);
+
+  await exec(
+    db,
+    `INSERT INTO recipe_revision_cuts (recipe_revision_id, cut_name)
+     SELECT ?, cut_name
+     FROM recipe_revision_cuts
+     WHERE recipe_revision_id = ?`,
+    newRevisionId,
+    current.revisionId
+  );
+
+  await exec(
+    db,
+    `INSERT INTO recipe_revision_ingredients
+      (recipe_revision_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
+     SELECT ?, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order
+     FROM recipe_revision_ingredients
+     WHERE recipe_revision_id = ?`,
+    newRevisionId,
+    current.revisionId
+  );
+
+  await exec(
+    db,
+    `UPDATE recipes
+     SET current_revision_id = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`,
+    newRevisionId,
+    ts,
+    recipeId,
+    USER_ID
+  );
+
+  return newRevisionId;
+}
+
 export async function createRecipe(db: D1Database, input: RecipeCoreInput): Promise<number> {
   const ts = nowIso();
-  const run = await exec(
+  const recipeRun = await exec(
     db,
-    `INSERT INTO recipes (user_id, title, description, tags_json, base_meat_grams, base_animal, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO recipes (user_id, title, description, tags_json, base_meat_grams, base_animal, created_at, updated_at, current_revision_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     USER_ID,
     input.title,
     input.description,
@@ -54,36 +158,69 @@ export async function createRecipe(db: D1Database, input: RecipeCoreInput): Prom
     ts,
     ts
   );
-  return Number(run.meta.last_row_id);
-}
+  const recipeId = Number(recipeRun.meta.last_row_id);
 
-export async function updateRecipe(db: D1Database, recipeId: number, input: RecipeCoreInput) {
-  const existing = await queryFirst<{ base_meat_grams: number }>(
+  const revisionRun = await exec(
     db,
-    `SELECT base_meat_grams FROM recipes WHERE id = ? AND user_id = ?`,
+    `INSERT INTO recipe_revisions (recipe_id, user_id, title, description, tags_json, base_meat_grams, base_animal, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    recipeId,
+    USER_ID,
+    input.title,
+    input.description,
+    JSON.stringify(input.tags),
+    Math.max(1, Math.round(input.baseMeatGrams)),
+    input.baseAnimal || null,
+    ts
+  );
+  const revisionId = Number(revisionRun.meta.last_row_id);
+
+  await exec(
+    db,
+    `UPDATE recipes
+     SET current_revision_id = ?
+     WHERE id = ? AND user_id = ?`,
+    revisionId,
     recipeId,
     USER_ID
   );
-  if (!existing) return;
 
+  return recipeId;
+}
+
+export async function updateRecipe(db: D1Database, recipeId: number, input: RecipeCoreInput) {
+  const current = await getCurrentRevisionSnapshot(db, recipeId);
+  if (!current) return;
+  const revisionId = await forkCurrentRevision(db, recipeId);
   const nextBase = Math.max(1, Math.round(input.baseMeatGrams));
-  const previousBase = Math.max(1, Math.round(existing.base_meat_grams));
+  const previousBase = Math.max(1, Math.round(current.baseMeatGrams));
   if (nextBase !== previousBase) {
     const factor = nextBase / previousBase;
     await exec(
       db,
-      `UPDATE recipe_ingredients
+      `UPDATE recipe_revision_ingredients
        SET
          amount_grams_per_base = CASE WHEN amount_grams_per_base IS NULL THEN NULL ELSE amount_grams_per_base * ? END,
          amount_ml_per_base = CASE WHEN amount_ml_per_base IS NULL THEN NULL ELSE amount_ml_per_base * ? END
-       WHERE recipe_id = ?
-         AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)`,
+       WHERE recipe_revision_id = ?`,
       factor,
       factor,
-      recipeId,
-      USER_ID
+      revisionId
     );
   }
+
+  await exec(
+    db,
+    `UPDATE recipe_revisions
+     SET title = ?, description = ?, tags_json = ?, base_meat_grams = ?, base_animal = ?
+     WHERE id = ?`,
+    input.title,
+    input.description,
+    JSON.stringify(input.tags),
+    nextBase,
+    input.baseAnimal || null,
+    revisionId
+  );
 
   await exec(
     db,
@@ -108,6 +245,7 @@ export async function deleteRecipe(db: D1Database, recipeId: number) {
 export async function getRecipeDetail(db: D1Database, recipeId: number) {
   const recipe = await queryFirst<{
     id: number;
+    revision_id: number;
     title: string;
     description: string | null;
     tags_json: string | null;
@@ -115,8 +253,10 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
     base_animal: string | null;
   }>(
     db,
-    `SELECT id, title, description, tags_json, base_meat_grams, base_animal
-     FROM recipes WHERE id = ? AND user_id = ?`,
+    `SELECT r.id, rr.id AS revision_id, rr.title, rr.description, rr.tags_json, rr.base_meat_grams, rr.base_animal
+     FROM recipes r
+     JOIN recipe_revisions rr ON rr.id = r.current_revision_id
+     WHERE r.id = ? AND r.user_id = ?`,
     recipeId,
     USER_ID
   );
@@ -125,12 +265,10 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
 
   const cuts = await queryAll<{ id: number; cut_name: string }>(
     db,
-    `SELECT rc.id, rc.cut_name FROM recipe_cuts rc
-     JOIN recipes r ON r.id = rc.recipe_id
-     WHERE rc.recipe_id = ? AND r.user_id = ?
+    `SELECT rc.id, rc.cut_name FROM recipe_revision_cuts rc
+     WHERE rc.recipe_revision_id = ?
      ORDER BY rc.id ASC`,
-    recipeId,
-    USER_ID
+    recipe.revision_id
   );
 
   const ingredients = await queryAll<{
@@ -151,14 +289,12 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
             ri.display_unit_override, ri.sort_order,
             i.default_display_unit,
             ic.grams_per_ml, ic.grams_per_tsp
-     FROM recipe_ingredients ri
-     JOIN recipes r ON r.id = ri.recipe_id
+     FROM recipe_revision_ingredients ri
      JOIN ingredients i ON i.id = ri.ingredient_id
      LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
-     WHERE ri.recipe_id = ? AND r.user_id = ? AND i.user_id = ?
+     WHERE ri.recipe_revision_id = ? AND i.user_id = ?
      ORDER BY ri.sort_order ASC, ri.id ASC`,
-    recipeId,
-    USER_ID,
+    recipe.revision_id,
     USER_ID
   );
 
@@ -167,10 +303,12 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
     cooked_at: string;
     meat_grams: number;
     animal_override: string | null;
+    parent_variation_id: number | null;
+    rating: number | null;
     note_count: number;
   }>(
     db,
-    `SELECT v.id, v.cooked_at, v.meat_grams, v.animal_override,
+    `SELECT v.id, v.cooked_at, v.meat_grams, v.animal_override, v.parent_variation_id, v.rating,
             (SELECT COUNT(*) FROM variation_notes vn WHERE vn.variation_id = v.id) AS note_count
      FROM variations v
      JOIN recipes r ON r.id = v.recipe_id
@@ -183,6 +321,7 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
   return {
     recipe: {
       id: recipe.id,
+      revisionId: recipe.revision_id,
       title: recipe.title,
       description: recipe.description ?? '',
       tags: parseTags(recipe.tags_json),
@@ -228,25 +367,24 @@ export async function ensureIngredient(db: D1Database, name: string, defaultDisp
 }
 
 export async function addRecipeCut(db: D1Database, recipeId: number, cutName: string) {
+  const revisionId = await forkCurrentRevision(db, recipeId);
   await exec(
     db,
-    `INSERT INTO recipe_cuts (recipe_id, cut_name)
-     SELECT id, ? FROM recipes WHERE id = ? AND user_id = ?`,
+    `INSERT INTO recipe_revision_cuts (recipe_revision_id, cut_name)
+     VALUES (?, ?)`,
+    revisionId,
     cutName,
-    recipeId,
-    USER_ID
   );
 }
 
 export async function deleteRecipeCut(db: D1Database, cutId: number, recipeId: number) {
+  const revisionId = await forkCurrentRevision(db, recipeId);
   await exec(
     db,
-    `DELETE FROM recipe_cuts
-     WHERE id = ? AND recipe_id = ?
-     AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)`,
+    `DELETE FROM recipe_revision_cuts
+     WHERE id = ? AND recipe_revision_id = ?`,
     cutId,
-    recipeId,
-    USER_ID
+    revisionId
   );
 }
 
@@ -259,49 +397,49 @@ export async function upsertRecipeIngredient(db: D1Database, input: {
   displayUnitOverride: DisplayUnit | null;
   sortOrder: number;
 }) {
+  const revisionId = await forkCurrentRevision(db, input.recipeId);
   if (input.id) {
     await exec(
       db,
-      `UPDATE recipe_ingredients
+      `UPDATE recipe_revision_ingredients
        SET ingredient_id = ?, amount_grams_per_base = ?, amount_ml_per_base = ?,
            display_unit_override = ?, sort_order = ?
-       WHERE id = ? AND recipe_id = ?
-       AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)`,
+       WHERE id = ? AND recipe_revision_id = ?`,
       input.ingredientId,
       input.amountGramsPerBase,
       input.amountMlPerBase,
       input.displayUnitOverride,
       input.sortOrder,
       input.id,
-      input.recipeId,
-      USER_ID
+      revisionId
     );
     return;
   }
 
   await exec(
     db,
-    `INSERT INTO recipe_ingredients (recipe_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
-     SELECT id, ?, ?, ?, ?, ? FROM recipes WHERE id = ? AND user_id = ?`,
-    input.ingredientId,
+    `INSERT INTO recipe_revision_ingredients (recipe_revision_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
+     SELECT ?, i.id, ?, ?, ?, ?
+     FROM ingredients i
+     WHERE i.id = ? AND i.user_id = ?`,
+    revisionId,
     input.amountGramsPerBase,
     input.amountMlPerBase,
     input.displayUnitOverride,
     input.sortOrder,
-    input.recipeId,
+    input.ingredientId,
     USER_ID
   );
 }
 
 export async function deleteRecipeIngredient(db: D1Database, id: number, recipeId: number) {
+  const revisionId = await forkCurrentRevision(db, recipeId);
   await exec(
     db,
-    `DELETE FROM recipe_ingredients
-     WHERE id = ? AND recipe_id = ?
-     AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)`,
+    `DELETE FROM recipe_revision_ingredients
+     WHERE id = ? AND recipe_revision_id = ?`,
     id,
-    recipeId,
-    USER_ID
+    revisionId
   );
 }
 
@@ -310,19 +448,71 @@ export async function createVariation(db: D1Database, input: {
   cookedAt: string;
   meatGrams: number;
   animalOverride: string;
+  parentVariationId?: number | null;
+  rating?: number | null;
+  recipeRevisionId?: number | null;
 }): Promise<number> {
+  const parentVariationId = input.parentVariationId ?? null;
+  const rating =
+    input.rating === null || input.rating === undefined
+      ? null
+      : Math.min(5, Math.max(1, Math.round(input.rating)));
+
+  const recipeRow = await queryFirst<{ current_revision_id: number | null }>(
+    db,
+    `SELECT current_revision_id FROM recipes WHERE id = ? AND user_id = ?`,
+    input.recipeId,
+    USER_ID
+  );
+  if (!recipeRow?.current_revision_id) {
+    throw new Error('Recipe has no active revision');
+  }
+
+  let resolvedRevisionId = input.recipeRevisionId ?? recipeRow.current_revision_id;
+
+  if (parentVariationId) {
+    const parent = await queryFirst<{ recipe_revision_id: number | null; recipe_id: number }>(
+      db,
+      `SELECT recipe_id, recipe_revision_id
+       FROM variations
+       WHERE id = ? AND user_id = ?`,
+      parentVariationId,
+      USER_ID
+    );
+    if (!parent || parent.recipe_id !== input.recipeId || !parent.recipe_revision_id) {
+      throw new Error('Invalid parent variation for this recipe');
+    }
+    if (input.recipeRevisionId == null) {
+      resolvedRevisionId = parent.recipe_revision_id;
+    }
+  }
+
+  const revisionBelongs = await queryFirst<{ ok: number }>(
+    db,
+    `SELECT 1 AS ok
+     FROM recipe_revisions
+     WHERE id = ? AND recipe_id = ? AND user_id = ?`,
+    resolvedRevisionId,
+    input.recipeId,
+    USER_ID
+  );
+  if (!revisionBelongs) throw new Error('Invalid recipe revision selected for variation');
+
   const run = await exec(
     db,
-    `INSERT INTO variations (recipe_id, user_id, cooked_at, meat_grams, animal_override, created_at)
-     SELECT id, ?, ?, ?, ?, ? FROM recipes WHERE id = ? AND user_id = ?`,
+    `INSERT INTO variations (recipe_id, recipe_revision_id, user_id, cooked_at, meat_grams, animal_override, parent_variation_id, rating, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    input.recipeId,
+    resolvedRevisionId,
     USER_ID,
     input.cookedAt,
     Math.max(1, Math.round(input.meatGrams)),
     input.animalOverride || null,
-    nowIso(),
-    input.recipeId,
-    USER_ID
+    parentVariationId,
+    rating,
+    nowIso()
   );
+  if ((run.meta.changes ?? 0) < 1) throw new Error('Failed to create variation');
   return Number(run.meta.last_row_id);
 }
 
@@ -347,17 +537,21 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
     id: number;
     recipe_id: number;
     recipe_title: string;
+    recipe_revision_id: number;
     base_meat_grams: number;
     base_animal: string | null;
     cooked_at: string;
     meat_grams: number;
     animal_override: string | null;
+    parent_variation_id: number | null;
+    rating: number | null;
   }>(
     db,
-    `SELECT v.id, v.recipe_id, r.title AS recipe_title, r.base_meat_grams, r.base_animal,
-            v.cooked_at, v.meat_grams, v.animal_override
+    `SELECT v.id, v.recipe_id, rr.title AS recipe_title, v.recipe_revision_id, rr.base_meat_grams, rr.base_animal,
+            v.cooked_at, v.meat_grams, v.animal_override, v.parent_variation_id, v.rating
      FROM variations v
      JOIN recipes r ON r.id = v.recipe_id
+     JOIN recipe_revisions rr ON rr.id = v.recipe_revision_id
      WHERE v.id = ? AND v.user_id = ? AND r.user_id = ?`,
     variationId,
     USER_ID,
@@ -377,14 +571,12 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
             ic.grams_per_ml AS gramsPerMl,
             ic.grams_per_tsp AS gramsPerTsp,
             ri.sort_order
-     FROM recipe_ingredients ri
+     FROM recipe_revision_ingredients ri
      JOIN ingredients i ON i.id = ri.ingredient_id
-     JOIN recipes r ON r.id = ri.recipe_id
      LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
-     WHERE ri.recipe_id = ? AND r.user_id = ? AND i.user_id = ?
+     WHERE ri.recipe_revision_id = ? AND i.user_id = ?
      ORDER BY ri.sort_order ASC, ri.id ASC`,
-    variation.recipe_id,
-    USER_ID,
+    variation.recipe_revision_id,
     USER_ID
   );
 
@@ -420,12 +612,10 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
   const recipeCuts = await queryAll<{ id: number; cut_name: string }>(
     db,
     `SELECT rc.id, rc.cut_name
-     FROM recipe_cuts rc
-     JOIN recipes r ON r.id = rc.recipe_id
-     WHERE rc.recipe_id = ? AND r.user_id = ?
+     FROM recipe_revision_cuts rc
+     WHERE rc.recipe_revision_id = ?
      ORDER BY rc.id ASC`,
-    variation.recipe_id,
-    USER_ID
+    variation.recipe_revision_id
   );
 
   const variationCuts = await queryAll<{ id: number; cut_name: string }>(
@@ -464,11 +654,14 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
       id: variation.id,
       recipeId: variation.recipe_id,
       recipeTitle: variation.recipe_title,
+      recipeRevisionId: variation.recipe_revision_id,
       baseMeatGrams: variation.base_meat_grams,
       baseAnimal: variation.base_animal ?? '',
       cookedAt: variation.cooked_at,
       meatGrams: variation.meat_grams,
-      animalOverride: variation.animal_override ?? ''
+      animalOverride: variation.animal_override ?? '',
+      parentVariationId: variation.parent_variation_id,
+      rating: variation.rating
     },
     scaledIngredientRows: mergedIngredientRows,
     recipeIngredients,
@@ -483,15 +676,21 @@ export async function updateVariation(db: D1Database, variationId: number, input
   cookedAt: string;
   meatGrams: number;
   animalOverride: string;
+  rating: number | null;
 }) {
+  const rating =
+    input.rating === null || input.rating === undefined
+      ? null
+      : Math.min(5, Math.max(1, Math.round(input.rating)));
   await exec(
     db,
     `UPDATE variations
-     SET cooked_at = ?, meat_grams = ?, animal_override = ?
+     SET cooked_at = ?, meat_grams = ?, animal_override = ?, rating = ?
      WHERE id = ? AND user_id = ?`,
     input.cookedAt,
     Math.max(1, Math.round(input.meatGrams)),
     input.animalOverride || null,
+    rating,
     variationId,
     USER_ID
   );

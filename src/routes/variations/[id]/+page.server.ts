@@ -3,6 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import {
   addVariationCut,
   addVariationNote,
+  createVariation,
   deleteVariation as removeVariation,
   deleteVariationCut,
   deleteVariationIngredient,
@@ -35,10 +36,12 @@ export const actions: Actions = {
   updateVariation: async ({ request, params, platform }) => {
     if (!platform?.env?.DB) return { success: false };
     const form = await request.formData();
+    const ratingRaw = String(form.get('rating') ?? '').trim();
     await updateVariation(platform.env.DB, Number(params.id), {
       cookedAt: String(form.get('cooked_at') ?? '').trim(),
       meatGrams: Number(form.get('meat_grams') ?? 1000),
-      animalOverride: String(form.get('animal_override') ?? '').trim()
+      animalOverride: String(form.get('animal_override') ?? '').trim(),
+      rating: ratingRaw ? Number(ratingRaw) : null
     });
     return { success: true };
   },
@@ -107,5 +110,30 @@ export const actions: Actions = {
     if (!detail) return { success: false };
     await removeVariation(platform.env.DB, Number(params.id));
     throw redirect(303, `/recipes/${detail.variation.recipeId}`);
+  },
+  createChildVariation: async ({ request, params, platform }) => {
+    if (!platform?.env?.DB) return { success: false };
+    const current = await getVariationDetail(platform.env.DB, Number(params.id));
+    if (!current) return { success: false };
+    const form = await request.formData();
+    const ratingRaw = String(form.get('rating') ?? '').trim();
+    let id: number;
+    try {
+      id = await createVariation(platform.env.DB, {
+        recipeId: current.variation.recipeId,
+        cookedAt: String(form.get('cooked_at') ?? '').trim() || new Date().toISOString().slice(0, 10),
+        meatGrams: Number(form.get('meat_grams') ?? current.variation.meatGrams),
+        animalOverride: String(form.get('animal_override') ?? '').trim(),
+        parentVariationId: current.variation.id,
+        recipeRevisionId: current.variation.recipeRevisionId,
+        rating: ratingRaw ? Number(ratingRaw) : null
+      });
+    } catch (err) {
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to create child variation'
+      };
+    }
+    throw redirect(303, `/variations/${id}`);
   }
 };

@@ -2,8 +2,9 @@
   import RecipeEditor from '$lib/components/RecipeEditor.svelte';
   import IngredientRatioEditor from '$lib/components/IngredientRatioEditor.svelte';
   import VariationsList from '$lib/components/VariationsList.svelte';
+  import VariationTree from '$lib/components/VariationTree.svelte';
 
-  let { data } = $props();
+  let { data, form } = $props();
 
   const confirmDelete = (event: SubmitEvent, message: string) => {
     if (!confirm(message)) event.preventDefault();
@@ -70,8 +71,27 @@
       Animal override
       <input name="animal_override" placeholder={data.recipe.baseAnimal || 'optional'} />
     </label>
+    <label>
+      Parent variation (optional)
+      <select name="parent_variation_id">
+        <option value="">None (new root)</option>
+        {#each data.variations as variation}
+          <option value={variation.id}>
+            #{variation.id} {variation.cooked_at.slice(0, 10)} (rating {variation.rating ?? '-'})
+          </option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Variation rating (optional 1-5)
+      <input type="number" min="1" max="5" name="rating" />
+    </label>
     <button class="primary" type="submit">Create variation</button>
   </form>
+  {#if form?.message}
+    <p class="warning">{form.message}</p>
+  {/if}
 </section>
 
 <VariationsList variations={data.variations} allowDelete={true} />
+<VariationTree variations={data.variations} />

@@ -8,6 +8,8 @@
       cooked_at: string;
       meat_grams: number;
       animal_override: string | null;
+      parent_variation_id: number | null;
+      rating: number | null;
       note_count: number;
     }>;
     allowDelete?: boolean;
@@ -29,6 +31,8 @@
           <th>Date</th>
           <th>Meat (g)</th>
           <th>Animal</th>
+          <th>Rating</th>
+          <th>Parent</th>
           <th>Notes</th>
           <th></th>
         </tr>
@@ -39,6 +43,8 @@
             <td>{row.cooked_at.slice(0, 10)}</td>
             <td>{row.meat_grams}</td>
             <td>{row.animal_override ?? '-'}</td>
+            <td>{row.rating ?? '-'}</td>
+            <td>{row.parent_variation_id ?? '-'}</td>
             <td>{row.note_count}</td>
             <td>
               <a href={`/variations/${row.id}`}>Open</a>
