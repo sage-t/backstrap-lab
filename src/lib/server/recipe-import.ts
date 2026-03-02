@@ -119,9 +119,14 @@ export async function importRecipeFromText(params: {
                     name: { type: 'string' },
                     amount_per_base: { type: 'number' },
                     unit: { type: 'string', enum: ['g', 'ml', 'tsp', 'tbsp'] },
-                    display_unit: { type: 'string', enum: ['g', 'ml', 'tsp', 'tbsp'] }
+                    display_unit: {
+                      anyOf: [
+                        { type: 'string', enum: ['g', 'ml', 'tsp', 'tbsp'] },
+                        { type: 'null' }
+                      ]
+                    }
                   },
-                  required: ['name', 'amount_per_base', 'unit']
+                  required: ['name', 'amount_per_base', 'unit', 'display_unit']
                 }
               }
             },
