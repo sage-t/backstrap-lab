@@ -1,5 +1,6 @@
 import type { Actions, PageServerLoad } from './$types';
 import { listIngredientsWithConversions, upsertIngredientConversion } from '$lib/server/db';
+import { requireUserId } from '$lib/server/auth';
 
 const parseNumber = (value: FormDataEntryValue | null): number | null => {
   const text = String(value ?? '').trim();
@@ -15,8 +16,9 @@ export const load: PageServerLoad = async ({ platform }) => {
 };
 
 export const actions: Actions = {
-  update: async ({ request, platform }) => {
+  update: async ({ request, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    requireUserId(locals);
     const form = await request.formData();
     await upsertIngredientConversion(platform.env.DB, {
       ingredientId: Number(form.get('ingredient_id')),

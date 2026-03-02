@@ -14,13 +14,15 @@ import {
   updateVariation
 } from '$lib/server/db';
 import { scaleIngredients, type DisplayUnit } from '$lib/scaling';
+import { normalizeUserId, requireUserId } from '$lib/server/auth';
 
 const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
 
-export const load: PageServerLoad = async ({ params, platform }) => {
+export const load: PageServerLoad = async ({ params, platform, locals }) => {
   if (!platform?.env?.DB) throw error(500, 'DB binding missing');
   const detail = await getVariationDetail(platform.env.DB, Number(params.id));
   if (!detail) throw redirect(303, '/');
+  const actorUserId = normalizeUserId(locals.user);
 
   const scaled = scaleIngredients({
     baseMeatGrams: detail.variation.baseMeatGrams,
@@ -29,12 +31,17 @@ export const load: PageServerLoad = async ({ params, platform }) => {
   });
 
   const ingredientCatalog = await listIngredients(platform.env.DB);
-  return { ...detail, scaled, ingredientCatalog };
+  const canEditVariation =
+    actorUserId !== null &&
+    (actorUserId === detail.variation.userId || actorUserId === detail.variation.recipeOwnerUserId);
+  const canDeleteVariation = actorUserId !== null && actorUserId === detail.variation.recipeOwnerUserId;
+  return { ...detail, scaled, ingredientCatalog, canEditVariation, canDeleteVariation };
 };
 
 export const actions: Actions = {
-  updateVariation: async ({ request, params, platform }) => {
+  updateVariation: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const ratingRaw = String(form.get('rating') ?? '').trim();
     await updateVariation(platform.env.DB, Number(params.id), {
@@ -42,33 +49,37 @@ export const actions: Actions = {
       meatGrams: Number(form.get('meat_grams') ?? 1000),
       animalOverride: String(form.get('animal_override') ?? '').trim(),
       rating: ratingRaw ? Number(ratingRaw) : null
-    });
+    }, actorUserId);
     return { success: true };
   },
-  addCut: async ({ request, params, platform }) => {
+  addCut: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
-    await addVariationCut(platform.env.DB, Number(params.id), String(form.get('cut_name') ?? '').trim());
+    await addVariationCut(platform.env.DB, Number(params.id), String(form.get('cut_name') ?? '').trim(), actorUserId);
     return { success: true };
   },
-  deleteCut: async ({ request, params, platform }) => {
+  deleteCut: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
-    await deleteVariationCut(platform.env.DB, Number(params.id), Number(form.get('cut_id')));
+    await deleteVariationCut(platform.env.DB, Number(params.id), Number(form.get('cut_id')), actorUserId);
     return { success: true };
   },
-  addNote: async ({ request, params, platform }) => {
+  addNote: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const noteText = String(form.get('note_text') ?? '').trim();
     const ratingRaw = String(form.get('rating') ?? '').trim();
     const rating = ratingRaw ? Math.min(5, Math.max(1, Number(ratingRaw))) : null;
     if (!noteText) return { success: false };
-    await addVariationNote(platform.env.DB, Number(params.id), noteText, rating);
+    await addVariationNote(platform.env.DB, Number(params.id), noteText, rating, actorUserId);
     return { success: true };
   },
-  upsertRatioOverride: async ({ request, params, platform }) => {
+  upsertRatioOverride: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const ingredientIdRaw = String(form.get('ingredient_id') ?? '').trim();
     const newName = String(form.get('new_ingredient_name') ?? '').trim();
@@ -83,7 +94,8 @@ export const actions: Actions = {
       ingredientId = await ensureIngredient(
         platform.env.DB,
         newName,
-        isDisplayUnit(unitRaw) ? unitRaw : 'g'
+        isDisplayUnit(unitRaw) ? unitRaw : 'g',
+        actorUserId
       );
     }
 
@@ -95,24 +107,28 @@ export const actions: Actions = {
       amountMlPerBase: ratioType === 'ml' ? amount : null,
       displayUnitOverride: isDisplayUnit(overrideRaw) ? overrideRaw : null,
       sortOrder: Number(form.get('sort_order') ?? 10)
-    });
+    }, actorUserId);
     return { success: true };
   },
-  deleteRatioOverride: async ({ request, params, platform }) => {
+  deleteRatioOverride: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
-    await deleteVariationIngredient(platform.env.DB, Number(params.id), Number(form.get('id')));
+    await deleteVariationIngredient(platform.env.DB, Number(params.id), Number(form.get('id')), actorUserId);
     return { success: true };
   },
-  deleteVariation: async ({ params, platform }) => {
+  deleteVariation: async ({ params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const detail = await getVariationDetail(platform.env.DB, Number(params.id));
     if (!detail) return { success: false };
-    await removeVariation(platform.env.DB, Number(params.id));
+    const deleted = await removeVariation(platform.env.DB, Number(params.id), actorUserId);
+    if (!deleted) return { success: false, message: 'Only the recipe owner can delete this variation.' };
     throw redirect(303, `/recipes/${detail.variation.recipeId}`);
   },
-  createChildVariation: async ({ request, params, platform }) => {
+  createChildVariation: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const current = await getVariationDetail(platform.env.DB, Number(params.id));
     if (!current) return { success: false };
     const form = await request.formData();
@@ -126,7 +142,8 @@ export const actions: Actions = {
         animalOverride: String(form.get('animal_override') ?? '').trim(),
         parentVariationId: current.variation.id,
         recipeRevisionId: current.variation.recipeRevisionId,
-        rating: ratingRaw ? Number(ratingRaw) : null
+        rating: ratingRaw ? Number(ratingRaw) : null,
+        actorUserId
       });
     } catch (err) {
       return {

@@ -1,8 +1,13 @@
 import type { DisplayUnit, ScaleInputRow } from '$lib/scaling';
 
-export const USER_ID = 'local';
+export const DEV_USER_ID = 'local-dev';
 
 const nowIso = () => new Date().toISOString();
+const normalizeUserId = (userId?: string | null): string | null => {
+  const value = userId?.trim().toLowerCase();
+  return value ? value : null;
+};
+const asActor = (userId?: string | null): string => normalizeUserId(userId) ?? DEV_USER_ID;
 
 type RecipeCoreInput = {
   title: string;
@@ -31,9 +36,8 @@ export async function listRecipes(db: D1Database, q: string) {
     db,
     `SELECT id, title, updated_at
      FROM recipes
-     WHERE user_id = ? AND (? = '%%' OR lower(title) LIKE ?)
+     WHERE (? = '%%' OR lower(title) LIKE ?)
      ORDER BY updated_at DESC, id DESC`,
-    USER_ID,
     term,
     term
   );
@@ -41,7 +45,9 @@ export async function listRecipes(db: D1Database, q: string) {
 
 async function getCurrentRevisionSnapshot(
   db: D1Database,
-  recipeId: number
+  recipeId: number,
+  actorUserId?: string | null,
+  requireOwner = false
 ): Promise<{
   recipeId: number;
   revisionId: number;
@@ -51,6 +57,7 @@ async function getCurrentRevisionSnapshot(
   baseMeatGrams: number;
   baseAnimal: string | null;
 } | null> {
+  const actor = asActor(actorUserId);
   return queryFirst<{
     recipeId: number;
     revisionId: number;
@@ -70,9 +77,11 @@ async function getCurrentRevisionSnapshot(
             rr.base_animal AS baseAnimal
      FROM recipes r
      JOIN recipe_revisions rr ON rr.id = r.current_revision_id
-     WHERE r.id = ? AND r.user_id = ?`,
+     WHERE r.id = ?
+       AND (? = 0 OR r.user_id = ?)`,
     recipeId,
-    USER_ID
+    requireOwner ? 1 : 0,
+    actor
   ).then((row) =>
     row
       ? {
@@ -88,8 +97,9 @@ async function getCurrentRevisionSnapshot(
   );
 }
 
-async function forkCurrentRevision(db: D1Database, recipeId: number): Promise<number> {
-  const current = await getCurrentRevisionSnapshot(db, recipeId);
+async function forkCurrentRevision(db: D1Database, recipeId: number, actorUserId?: string | null): Promise<number> {
+  const actor = asActor(actorUserId);
+  const current = await getCurrentRevisionSnapshot(db, recipeId, actor, true);
   if (!current) throw new Error('Recipe current revision not found');
   const ts = nowIso();
 
@@ -98,7 +108,7 @@ async function forkCurrentRevision(db: D1Database, recipeId: number): Promise<nu
     `INSERT INTO recipe_revisions (recipe_id, user_id, title, description, tags_json, base_meat_grams, base_animal, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     recipeId,
-    USER_ID,
+    actor,
     current.title,
     current.description,
     current.tagsJson,
@@ -137,19 +147,24 @@ async function forkCurrentRevision(db: D1Database, recipeId: number): Promise<nu
     newRevisionId,
     ts,
     recipeId,
-    USER_ID
+    actor
   );
 
   return newRevisionId;
 }
 
-export async function createRecipe(db: D1Database, input: RecipeCoreInput): Promise<number> {
+export async function createRecipe(
+  db: D1Database,
+  input: RecipeCoreInput,
+  actorUserId?: string | null
+): Promise<number> {
+  const actor = asActor(actorUserId);
   const ts = nowIso();
   const recipeRun = await exec(
     db,
     `INSERT INTO recipes (user_id, title, description, tags_json, base_meat_grams, base_animal, created_at, updated_at, current_revision_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-    USER_ID,
+    actor,
     input.title,
     input.description,
     JSON.stringify(input.tags),
@@ -165,7 +180,7 @@ export async function createRecipe(db: D1Database, input: RecipeCoreInput): Prom
     `INSERT INTO recipe_revisions (recipe_id, user_id, title, description, tags_json, base_meat_grams, base_animal, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     recipeId,
-    USER_ID,
+    actor,
     input.title,
     input.description,
     JSON.stringify(input.tags),
@@ -182,16 +197,22 @@ export async function createRecipe(db: D1Database, input: RecipeCoreInput): Prom
      WHERE id = ? AND user_id = ?`,
     revisionId,
     recipeId,
-    USER_ID
+    actor
   );
 
   return recipeId;
 }
 
-export async function updateRecipe(db: D1Database, recipeId: number, input: RecipeCoreInput) {
-  const current = await getCurrentRevisionSnapshot(db, recipeId);
+export async function updateRecipe(
+  db: D1Database,
+  recipeId: number,
+  input: RecipeCoreInput,
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
+  const current = await getCurrentRevisionSnapshot(db, recipeId, actor, true);
   if (!current) return;
-  const revisionId = await forkCurrentRevision(db, recipeId);
+  const revisionId = await forkCurrentRevision(db, recipeId, actor);
   const nextBase = Math.max(1, Math.round(input.baseMeatGrams));
   const previousBase = Math.max(1, Math.round(current.baseMeatGrams));
   if (nextBase !== previousBase) {
@@ -234,17 +255,25 @@ export async function updateRecipe(db: D1Database, recipeId: number, input: Reci
     input.baseAnimal || null,
     nowIso(),
     recipeId,
-    USER_ID
+    actor
   );
 }
 
-export async function deleteRecipe(db: D1Database, recipeId: number) {
-  await exec(db, `DELETE FROM recipes WHERE id = ? AND user_id = ?`, recipeId, USER_ID);
+export async function deleteRecipe(
+  db: D1Database,
+  recipeId: number,
+  actorUserId?: string | null
+): Promise<boolean> {
+  const actor = asActor(actorUserId);
+  const result = await exec(db, `DELETE FROM recipes WHERE id = ? AND user_id = ?`, recipeId, actor);
+  return (result.meta.changes ?? 0) > 0;
 }
 
-export async function getRecipeDetail(db: D1Database, recipeId: number) {
+export async function getRecipeDetail(db: D1Database, recipeId: number, viewerUserId?: string | null) {
+  const viewer = normalizeUserId(viewerUserId);
   const recipe = await queryFirst<{
     id: number;
+    owner_user_id: string;
     revision_id: number;
     title: string;
     description: string | null;
@@ -253,12 +282,11 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
     base_animal: string | null;
   }>(
     db,
-    `SELECT r.id, rr.id AS revision_id, rr.title, rr.description, rr.tags_json, rr.base_meat_grams, rr.base_animal
+    `SELECT r.id, r.user_id AS owner_user_id, rr.id AS revision_id, rr.title, rr.description, rr.tags_json, rr.base_meat_grams, rr.base_animal
      FROM recipes r
      JOIN recipe_revisions rr ON rr.id = r.current_revision_id
-     WHERE r.id = ? AND r.user_id = ?`,
-    recipeId,
-    USER_ID
+     WHERE r.id = ?`,
+    recipeId
   );
 
   if (!recipe) return null;
@@ -292,10 +320,9 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
      FROM recipe_revision_ingredients ri
      JOIN ingredients i ON i.id = ri.ingredient_id
      LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
-     WHERE ri.recipe_revision_id = ? AND i.user_id = ?
+     WHERE ri.recipe_revision_id = ?
      ORDER BY ri.sort_order ASC, ri.id ASC`,
-    recipe.revision_id,
-    USER_ID
+    recipe.revision_id
   );
 
   const variations = await queryAll<{
@@ -312,15 +339,34 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
             (SELECT COUNT(*) FROM variation_notes vn WHERE vn.variation_id = v.id) AS note_count
      FROM variations v
      JOIN recipes r ON r.id = v.recipe_id
-     WHERE v.recipe_id = ? AND r.user_id = ?
+     WHERE v.recipe_id = ?
      ORDER BY v.cooked_at DESC, v.id DESC`,
-    recipeId,
-    USER_ID
+    recipeId
   );
+
+  const ratingSummary = await queryFirst<{ avg_rating: number | null; rating_count: number }>(
+    db,
+    `SELECT AVG(rr.rating) AS avg_rating, COUNT(*) AS rating_count
+     FROM recipe_ratings rr
+     WHERE rr.recipe_id = ?`,
+    recipeId
+  );
+
+  const myRating = viewer
+    ? await queryFirst<{ rating: number | null }>(
+        db,
+        `SELECT rating
+         FROM recipe_ratings
+         WHERE recipe_id = ? AND user_id = ?`,
+        recipeId,
+        viewer
+      )
+    : null;
 
   return {
     recipe: {
       id: recipe.id,
+      ownerUserId: recipe.owner_user_id,
       revisionId: recipe.revision_id,
       title: recipe.title,
       description: recipe.description ?? '',
@@ -328,10 +374,37 @@ export async function getRecipeDetail(db: D1Database, recipeId: number) {
       baseMeatGrams: recipe.base_meat_grams,
       baseAnimal: recipe.base_animal ?? ''
     },
+    rating: {
+      average: ratingSummary?.avg_rating ?? null,
+      count: ratingSummary?.rating_count ?? 0,
+      myRating: myRating?.rating ?? null
+    },
     cuts,
     ingredients,
     variations
   };
+}
+
+export async function setRecipeRating(
+  db: D1Database,
+  recipeId: number,
+  rating: number,
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
+  const clamped = Math.min(5, Math.max(1, Math.round(rating)));
+  await exec(
+    db,
+    `INSERT INTO recipe_ratings (recipe_id, user_id, rating, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(recipe_id, user_id) DO UPDATE SET
+       rating = excluded.rating,
+       updated_at = excluded.updated_at`,
+    recipeId,
+    actor,
+    clamped,
+    nowIso()
+  );
 }
 
 export async function listIngredients(db: D1Database) {
@@ -339,17 +412,20 @@ export async function listIngredients(db: D1Database) {
     db,
     `SELECT id, name, default_display_unit
      FROM ingredients
-     WHERE user_id = ?
      ORDER BY lower(name) ASC`,
-    USER_ID
   );
 }
 
-export async function ensureIngredient(db: D1Database, name: string, defaultDisplayUnit: DisplayUnit) {
+export async function ensureIngredient(
+  db: D1Database,
+  name: string,
+  defaultDisplayUnit: DisplayUnit,
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
   const existing = await queryFirst<{ id: number }>(
     db,
-    `SELECT id FROM ingredients WHERE user_id = ? AND lower(name) = lower(?)`,
-    USER_ID,
+    `SELECT id FROM ingredients WHERE lower(name) = lower(?) ORDER BY id ASC LIMIT 1`,
     name
   );
   if (existing) return existing.id;
@@ -361,13 +437,18 @@ export async function ensureIngredient(db: D1Database, name: string, defaultDisp
     name,
     defaultDisplayUnit,
     nowIso(),
-    USER_ID
+    actor
   );
   return Number(run.meta.last_row_id);
 }
 
-export async function addRecipeCut(db: D1Database, recipeId: number, cutName: string) {
-  const revisionId = await forkCurrentRevision(db, recipeId);
+export async function addRecipeCut(
+  db: D1Database,
+  recipeId: number,
+  cutName: string,
+  actorUserId?: string | null
+) {
+  const revisionId = await forkCurrentRevision(db, recipeId, actorUserId);
   await exec(
     db,
     `INSERT INTO recipe_revision_cuts (recipe_revision_id, cut_name)
@@ -377,8 +458,13 @@ export async function addRecipeCut(db: D1Database, recipeId: number, cutName: st
   );
 }
 
-export async function deleteRecipeCut(db: D1Database, cutId: number, recipeId: number) {
-  const revisionId = await forkCurrentRevision(db, recipeId);
+export async function deleteRecipeCut(
+  db: D1Database,
+  cutId: number,
+  recipeId: number,
+  actorUserId?: string | null
+) {
+  const revisionId = await forkCurrentRevision(db, recipeId, actorUserId);
   await exec(
     db,
     `DELETE FROM recipe_revision_cuts
@@ -396,8 +482,8 @@ export async function upsertRecipeIngredient(db: D1Database, input: {
   amountMlPerBase: number | null;
   displayUnitOverride: DisplayUnit | null;
   sortOrder: number;
-}) {
-  const revisionId = await forkCurrentRevision(db, input.recipeId);
+}, actorUserId?: string | null) {
+  const revisionId = await forkCurrentRevision(db, input.recipeId, actorUserId);
   if (input.id) {
     await exec(
       db,
@@ -421,19 +507,23 @@ export async function upsertRecipeIngredient(db: D1Database, input: {
     `INSERT INTO recipe_revision_ingredients (recipe_revision_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
      SELECT ?, i.id, ?, ?, ?, ?
      FROM ingredients i
-     WHERE i.id = ? AND i.user_id = ?`,
+     WHERE i.id = ?`,
     revisionId,
     input.amountGramsPerBase,
     input.amountMlPerBase,
     input.displayUnitOverride,
     input.sortOrder,
-    input.ingredientId,
-    USER_ID
+    input.ingredientId
   );
 }
 
-export async function deleteRecipeIngredient(db: D1Database, id: number, recipeId: number) {
-  const revisionId = await forkCurrentRevision(db, recipeId);
+export async function deleteRecipeIngredient(
+  db: D1Database,
+  id: number,
+  recipeId: number,
+  actorUserId?: string | null
+) {
+  const revisionId = await forkCurrentRevision(db, recipeId, actorUserId);
   await exec(
     db,
     `DELETE FROM recipe_revision_ingredients
@@ -451,7 +541,9 @@ export async function createVariation(db: D1Database, input: {
   parentVariationId?: number | null;
   rating?: number | null;
   recipeRevisionId?: number | null;
+  actorUserId?: string | null;
 }): Promise<number> {
+  const actor = asActor(input.actorUserId);
   const parentVariationId = input.parentVariationId ?? null;
   const rating =
     input.rating === null || input.rating === undefined
@@ -460,9 +552,8 @@ export async function createVariation(db: D1Database, input: {
 
   const recipeRow = await queryFirst<{ current_revision_id: number | null }>(
     db,
-    `SELECT current_revision_id FROM recipes WHERE id = ? AND user_id = ?`,
-    input.recipeId,
-    USER_ID
+    `SELECT current_revision_id FROM recipes WHERE id = ?`,
+    input.recipeId
   );
   if (!recipeRow?.current_revision_id) {
     throw new Error('Recipe has no active revision');
@@ -475,9 +566,8 @@ export async function createVariation(db: D1Database, input: {
       db,
       `SELECT recipe_id, recipe_revision_id
        FROM variations
-       WHERE id = ? AND user_id = ?`,
-      parentVariationId,
-      USER_ID
+       WHERE id = ?`,
+      parentVariationId
     );
     if (!parent || parent.recipe_id !== input.recipeId || !parent.recipe_revision_id) {
       throw new Error('Invalid parent variation for this recipe');
@@ -491,10 +581,9 @@ export async function createVariation(db: D1Database, input: {
     db,
     `SELECT 1 AS ok
      FROM recipe_revisions
-     WHERE id = ? AND recipe_id = ? AND user_id = ?`,
+     WHERE id = ? AND recipe_id = ?`,
     resolvedRevisionId,
-    input.recipeId,
-    USER_ID
+    input.recipeId
   );
   if (!revisionBelongs) throw new Error('Invalid recipe revision selected for variation');
 
@@ -504,7 +593,7 @@ export async function createVariation(db: D1Database, input: {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     input.recipeId,
     resolvedRevisionId,
-    USER_ID,
+    actor,
     input.cookedAt,
     Math.max(1, Math.round(input.meatGrams)),
     input.animalOverride || null,
@@ -516,26 +605,43 @@ export async function createVariation(db: D1Database, input: {
   return Number(run.meta.last_row_id);
 }
 
-export async function deleteVariation(db: D1Database, variationId: number, recipeId?: number) {
+export async function deleteVariation(
+  db: D1Database,
+  variationId: number,
+  actorUserId?: string | null,
+  recipeId?: number
+): Promise<boolean> {
+  const actor = asActor(actorUserId);
   if (recipeId) {
-    await exec(
+    const result = await exec(
       db,
       `DELETE FROM variations
-       WHERE id = ? AND recipe_id = ? AND user_id = ?`,
+       WHERE id = ? AND recipe_id = ?
+         AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)`,
       variationId,
       recipeId,
-      USER_ID
+      actor
     );
-    return;
+    return (result.meta.changes ?? 0) > 0;
   }
 
-  await exec(db, `DELETE FROM variations WHERE id = ? AND user_id = ?`, variationId, USER_ID);
+  const result = await exec(
+    db,
+    `DELETE FROM variations
+     WHERE id = ?
+       AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)`,
+    variationId,
+    actor
+  );
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function getVariationDetail(db: D1Database, variationId: number) {
   const variation = await queryFirst<{
     id: number;
     recipe_id: number;
+    user_id: string;
+    recipe_owner_user_id: string;
     recipe_title: string;
     recipe_revision_id: number;
     base_meat_grams: number;
@@ -547,15 +653,14 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
     rating: number | null;
   }>(
     db,
-    `SELECT v.id, v.recipe_id, rr.title AS recipe_title, v.recipe_revision_id, rr.base_meat_grams, rr.base_animal,
+    `SELECT v.id, v.recipe_id, v.user_id, r.user_id AS recipe_owner_user_id,
+            rr.title AS recipe_title, v.recipe_revision_id, rr.base_meat_grams, rr.base_animal,
             v.cooked_at, v.meat_grams, v.animal_override, v.parent_variation_id, v.rating
      FROM variations v
      JOIN recipes r ON r.id = v.recipe_id
      JOIN recipe_revisions rr ON rr.id = v.recipe_revision_id
-     WHERE v.id = ? AND v.user_id = ? AND r.user_id = ?`,
-    variationId,
-    USER_ID,
-    USER_ID
+     WHERE v.id = ?`,
+    variationId
   );
 
   if (!variation) return null;
@@ -574,10 +679,9 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
      FROM recipe_revision_ingredients ri
      JOIN ingredients i ON i.id = ri.ingredient_id
      LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
-     WHERE ri.recipe_revision_id = ? AND i.user_id = ?
+     WHERE ri.recipe_revision_id = ?
      ORDER BY ri.sort_order ASC, ri.id ASC`,
-    variation.recipe_revision_id,
-    USER_ID
+    variation.recipe_revision_id
   );
 
   const variationIngredients = await queryAll<
@@ -596,15 +700,11 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
             ic.grams_per_tsp AS gramsPerTsp
      FROM variation_ingredients vi
      JOIN variations v ON v.id = vi.variation_id
-     JOIN recipes r ON r.id = v.recipe_id
      JOIN ingredients i ON i.id = vi.ingredient_id
      LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
-     WHERE vi.variation_id = ? AND v.user_id = ? AND r.user_id = ? AND i.user_id = ?
+     WHERE vi.variation_id = ?
      ORDER BY vi.sort_order ASC, vi.id ASC`,
-    variationId,
-    USER_ID,
-    USER_ID,
-    USER_ID
+    variationId
   );
 
   const mergedIngredientRows = mergeIngredientRows(recipeIngredients, variationIngredients);
@@ -623,12 +723,9 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
     `SELECT vc.id, vc.cut_name
      FROM variation_cuts vc
      JOIN variations v ON v.id = vc.variation_id
-     JOIN recipes r ON r.id = v.recipe_id
-     WHERE vc.variation_id = ? AND v.user_id = ? AND r.user_id = ?
+     WHERE vc.variation_id = ?
      ORDER BY vc.id ASC`,
-    variationId,
-    USER_ID,
-    USER_ID
+    variationId
   );
 
   const notes = await queryAll<{
@@ -641,18 +738,17 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
     `SELECT vn.id, vn.note_text, vn.rating, vn.created_at
      FROM variation_notes vn
      JOIN variations v ON v.id = vn.variation_id
-     JOIN recipes r ON r.id = v.recipe_id
-     WHERE vn.variation_id = ? AND v.user_id = ? AND r.user_id = ?
+     WHERE vn.variation_id = ?
      ORDER BY vn.created_at DESC, vn.id DESC`,
-    variationId,
-    USER_ID,
-    USER_ID
+    variationId
   );
 
   return {
     variation: {
       id: variation.id,
       recipeId: variation.recipe_id,
+      userId: variation.user_id,
+      recipeOwnerUserId: variation.recipe_owner_user_id,
       recipeTitle: variation.recipe_title,
       recipeRevisionId: variation.recipe_revision_id,
       baseMeatGrams: variation.base_meat_grams,
@@ -677,7 +773,8 @@ export async function updateVariation(db: D1Database, variationId: number, input
   meatGrams: number;
   animalOverride: string;
   rating: number | null;
-}) {
+}, actorUserId?: string | null) {
+  const actor = asActor(actorUserId);
   const rating =
     input.rating === null || input.rating === undefined
       ? null
@@ -686,50 +783,88 @@ export async function updateVariation(db: D1Database, variationId: number, input
     db,
     `UPDATE variations
      SET cooked_at = ?, meat_grams = ?, animal_override = ?, rating = ?
-     WHERE id = ? AND user_id = ?`,
+     WHERE id = ?
+       AND (
+         user_id = ?
+         OR EXISTS (SELECT 1 FROM recipes r WHERE r.id = recipe_id AND r.user_id = ?)
+       )`,
     input.cookedAt,
     Math.max(1, Math.round(input.meatGrams)),
     input.animalOverride || null,
     rating,
     variationId,
-    USER_ID
+    actor,
+    actor
   );
 }
 
-export async function addVariationCut(db: D1Database, variationId: number, cutName: string) {
+export async function addVariationCut(
+  db: D1Database,
+  variationId: number,
+  cutName: string,
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
   await exec(
     db,
     `INSERT INTO variation_cuts (variation_id, cut_name)
-     SELECT id, ? FROM variations WHERE id = ? AND user_id = ?`,
+     SELECT v.id, ?
+     FROM variations v
+     WHERE v.id = ?
+       AND (
+         v.user_id = ?
+         OR EXISTS (SELECT 1 FROM recipes r WHERE r.id = v.recipe_id AND r.user_id = ?)
+       )`,
     cutName,
     variationId,
-    USER_ID
+    actor,
+    actor
   );
 }
 
-export async function deleteVariationCut(db: D1Database, variationId: number, cutId: number) {
+export async function deleteVariationCut(
+  db: D1Database,
+  variationId: number,
+  cutId: number,
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
   await exec(
     db,
     `DELETE FROM variation_cuts
      WHERE id = ? AND variation_id = ?
-     AND EXISTS (SELECT 1 FROM variations v WHERE v.id = variation_id AND v.user_id = ?)`,
+     AND EXISTS (
+       SELECT 1 FROM variations v
+       WHERE v.id = variation_id
+         AND (
+           v.user_id = ?
+           OR EXISTS (SELECT 1 FROM recipes r WHERE r.id = v.recipe_id AND r.user_id = ?)
+         )
+     )`,
     cutId,
     variationId,
-    USER_ID
+    actor,
+    actor
   );
 }
 
-export async function addVariationNote(db: D1Database, variationId: number, noteText: string, rating: number | null) {
+export async function addVariationNote(
+  db: D1Database,
+  variationId: number,
+  noteText: string,
+  rating: number | null,
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
   await exec(
     db,
     `INSERT INTO variation_notes (variation_id, user_id, note_text, rating, created_at)
-     SELECT id, ?, ?, ?, ? FROM variations WHERE id = ? AND user_id = ?`,
-    USER_ID,
+     SELECT id, ?, ?, ?, ? FROM variations WHERE id = ?`,
+    actor,
     noteText,
     rating,
     nowIso(),
-    variationId,
-    USER_ID
+    variationId
   );
 }
 
@@ -741,14 +876,22 @@ export async function upsertVariationIngredient(db: D1Database, input: {
   amountMlPerBase: number | null;
   displayUnitOverride: DisplayUnit | null;
   sortOrder: number;
-}) {
+}, actorUserId?: string | null) {
+  const actor = asActor(actorUserId);
   if (input.id) {
     await exec(
       db,
       `UPDATE variation_ingredients
        SET ingredient_id = ?, amount_grams_per_base = ?, amount_ml_per_base = ?, display_unit_override = ?, sort_order = ?
        WHERE id = ? AND variation_id = ?
-         AND EXISTS (SELECT 1 FROM variations v WHERE v.id = variation_id AND v.user_id = ?)`,
+         AND EXISTS (
+           SELECT 1 FROM variations v
+           WHERE v.id = variation_id
+             AND (
+               v.user_id = ?
+               OR EXISTS (SELECT 1 FROM recipes r WHERE r.id = v.recipe_id AND r.user_id = ?)
+             )
+         )`,
       input.ingredientId,
       input.amountGramsPerBase,
       input.amountMlPerBase,
@@ -756,7 +899,8 @@ export async function upsertVariationIngredient(db: D1Database, input: {
       input.sortOrder,
       input.id,
       input.variationId,
-      USER_ID
+      actor,
+      actor
     );
     return;
   }
@@ -766,9 +910,12 @@ export async function upsertVariationIngredient(db: D1Database, input: {
     `INSERT INTO variation_ingredients (variation_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
      SELECT v.id, ?, ?, ?, ?, ?
      FROM variations v
-     JOIN recipes r ON r.id = v.recipe_id
      JOIN ingredients i ON i.id = ?
-     WHERE v.id = ? AND v.user_id = ? AND r.user_id = ? AND i.user_id = ?
+     WHERE v.id = ? AND i.id = ?
+       AND (
+         v.user_id = ?
+         OR EXISTS (SELECT 1 FROM recipes r WHERE r.id = v.recipe_id AND r.user_id = ?)
+       )
      ON CONFLICT(variation_id, ingredient_id) DO UPDATE SET
        amount_grams_per_base = excluded.amount_grams_per_base,
        amount_ml_per_base = excluded.amount_ml_per_base,
@@ -781,21 +928,35 @@ export async function upsertVariationIngredient(db: D1Database, input: {
     input.sortOrder,
     input.ingredientId,
     input.variationId,
-    USER_ID,
-    USER_ID,
-    USER_ID
+    input.ingredientId,
+    actor,
+    actor
   );
 }
 
-export async function deleteVariationIngredient(db: D1Database, variationId: number, id: number) {
+export async function deleteVariationIngredient(
+  db: D1Database,
+  variationId: number,
+  id: number,
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
   await exec(
     db,
     `DELETE FROM variation_ingredients
      WHERE id = ? AND variation_id = ?
-       AND EXISTS (SELECT 1 FROM variations v WHERE v.id = variation_id AND v.user_id = ?)`,
+       AND EXISTS (
+         SELECT 1 FROM variations v
+         WHERE v.id = variation_id
+           AND (
+             v.user_id = ?
+             OR EXISTS (SELECT 1 FROM recipes r WHERE r.id = v.recipe_id AND r.user_id = ?)
+           )
+       )`,
     id,
     variationId,
-    USER_ID
+    actor,
+    actor
   );
 }
 
@@ -813,20 +974,12 @@ export async function listIngredientsWithConversions(db: D1Database) {
             ic.grams_per_ml, ic.grams_per_tsp, ic.source_note
      FROM ingredients i
      LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
-     WHERE i.user_id = ?
-     ORDER BY lower(i.name) ASC`,
-    USER_ID
+     ORDER BY lower(i.name) ASC`
   );
 }
 
 export async function updateIngredientDisplayUnit(db: D1Database, ingredientId: number, unit: DisplayUnit) {
-  await exec(
-    db,
-    `UPDATE ingredients SET default_display_unit = ? WHERE id = ? AND user_id = ?`,
-    unit,
-    ingredientId,
-    USER_ID
-  );
+  await exec(db, `UPDATE ingredients SET default_display_unit = ? WHERE id = ?`, unit, ingredientId);
 }
 
 export async function upsertIngredientConversion(db: D1Database, input: {
@@ -840,7 +993,7 @@ export async function upsertIngredientConversion(db: D1Database, input: {
     `INSERT INTO ingredient_conversions (ingredient_id, grams_per_ml, grams_per_tsp, source_note, updated_at)
      SELECT i.id, ?, ?, ?, ?
      FROM ingredients i
-     WHERE i.id = ? AND i.user_id = ?
+     WHERE i.id = ?
      ON CONFLICT(ingredient_id) DO UPDATE SET
        grams_per_ml = excluded.grams_per_ml,
        grams_per_tsp = excluded.grams_per_tsp,
@@ -850,12 +1003,12 @@ export async function upsertIngredientConversion(db: D1Database, input: {
     input.gramsPerTsp,
     input.sourceNote || null,
     nowIso(),
-    input.ingredientId,
-    USER_ID
+    input.ingredientId
   );
 }
 
-export async function seedDemoData(db: D1Database) {
+export async function seedDemoData(db: D1Database, actorUserId?: string | null) {
+  const actor = asActor(actorUserId);
   const createdAt = nowIso();
   const defaults: Array<{ name: string; unit: DisplayUnit; gramsPerTsp: number }> = [
     { name: 'kosher salt', unit: 'tsp', gramsPerTsp: 5.7 },
@@ -877,8 +1030,7 @@ export async function seedDemoData(db: D1Database) {
 
   const existingSample = await queryFirst<{ id: number }>(
     db,
-    `SELECT id FROM recipes WHERE user_id = ? AND title = ?`,
-    USER_ID,
+    `SELECT id FROM recipes WHERE title = ? LIMIT 1`,
     'Basic Venison Backstrap'
   );
 
@@ -890,9 +1042,9 @@ export async function seedDemoData(db: D1Database) {
     tags: ['venison', 'backstrap', 'sear'],
     baseMeatGrams: 1000,
     baseAnimal: 'venison'
-  });
+  }, actor);
 
-  await addRecipeCut(db, recipeId, 'backstrap');
+  await addRecipeCut(db, recipeId, 'backstrap', actor);
 
   const saltId = await ensureIngredient(db, 'kosher salt', 'tsp');
   const pepperId = await ensureIngredient(db, 'black pepper', 'tsp');
@@ -905,7 +1057,7 @@ export async function seedDemoData(db: D1Database) {
     amountMlPerBase: null,
     displayUnitOverride: 'tsp',
     sortOrder: 1
-  });
+  }, actor);
   await upsertRecipeIngredient(db, {
     recipeId,
     ingredientId: pepperId,
@@ -913,7 +1065,7 @@ export async function seedDemoData(db: D1Database) {
     amountMlPerBase: null,
     displayUnitOverride: 'tsp',
     sortOrder: 2
-  });
+  }, actor);
   await upsertRecipeIngredient(db, {
     recipeId,
     ingredientId: garlicId,
@@ -921,17 +1073,18 @@ export async function seedDemoData(db: D1Database) {
     amountMlPerBase: null,
     displayUnitOverride: 'tsp',
     sortOrder: 3
-  });
+  }, actor);
 
   const variationId = await createVariation(db, {
     recipeId,
     cookedAt: createdAt.slice(0, 10),
     meatGrams: 1500,
-    animalOverride: 'venison'
+    animalOverride: 'venison',
+    actorUserId: actor
   });
 
-  await addVariationCut(db, variationId, 'backstrap');
-  await addVariationNote(db, variationId, 'Seared hotter than usual; bark was excellent.', 5);
+  await addVariationCut(db, variationId, 'backstrap', actor);
+  await addVariationNote(db, variationId, 'Seared hotter than usual; bark was excellent.', 5, actor);
 }
 
 function parseTags(raw: string | null): string[] {

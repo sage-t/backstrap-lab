@@ -2,6 +2,14 @@
 
 declare global {
   namespace App {
+    interface Locals {
+      user: {
+        id: string;
+        email?: string;
+        source: 'access' | 'dev';
+      } | null;
+    }
+
     interface Platform {
       env: {
         DB: D1Database;

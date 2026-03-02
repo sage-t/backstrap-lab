@@ -7,6 +7,9 @@
 
 <div class="app-shell">
   <aside class="sidebar">
+    {#if data.user}
+      <div class="card user-chip">Signed in as {data.user.email ?? data.user.id}</div>
+    {/if}
     <RecipeList recipes={data.recipes} q={data.q} />
   </aside>
   <main class="content">
@@ -36,6 +39,12 @@
     display: grid;
     gap: 1rem;
     align-content: start;
+  }
+
+  .user-chip {
+    margin-bottom: 0.75rem;
+    font-size: 0.88rem;
+    color: var(--muted);
   }
 
   @media (max-width: 900px) {

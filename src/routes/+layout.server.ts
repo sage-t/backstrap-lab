@@ -1,8 +1,8 @@
 import type { LayoutServerLoad } from './$types';
 import { listRecipes } from '$lib/server/db';
 
-export const load: LayoutServerLoad = async ({ platform, url }) => {
+export const load: LayoutServerLoad = async ({ platform, url, locals }) => {
   const q = (url.searchParams.get('q') ?? '').trim();
   const recipes = platform?.env?.DB ? await listRecipes(platform.env.DB, q) : [];
-  return { recipes, q };
+  return { recipes, q, user: locals.user };
 };

@@ -10,30 +10,38 @@ import {
   ensureIngredient,
   getRecipeDetail,
   listIngredients,
+  setRecipeRating,
   updateRecipe,
   upsertRecipeIngredient
 } from '$lib/server/db';
 import type { DisplayUnit } from '$lib/scaling';
+import { normalizeUserId, requireUserId } from '$lib/server/auth';
 
 const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
 
-export const load: PageServerLoad = async ({ params, platform }) => {
+export const load: PageServerLoad = async ({ params, platform, locals }) => {
   if (!platform?.env?.DB) throw error(500, 'DB binding missing');
   const recipeId = Number(params.id);
-  const detail = await getRecipeDetail(platform.env.DB, recipeId);
+  const viewerUserId = normalizeUserId(locals.user);
+  const detail = await getRecipeDetail(platform.env.DB, recipeId, viewerUserId);
   if (!detail) throw redirect(303, '/');
   const ingredientCatalog = await listIngredients(platform.env.DB);
+  const canEditRecipe = viewerUserId !== null && viewerUserId === detail.recipe.ownerUserId;
   return {
     ...detail,
     recipeIngredients: detail.ingredients,
     ingredientCatalog,
+    canEditRecipe,
+    canDeleteRecipe: canEditRecipe,
+    canRateRecipe: viewerUserId !== null,
     today: new Date().toISOString().slice(0, 10)
   };
 };
 
 export const actions: Actions = {
-  updateRecipe: async ({ request, params, platform }) => {
+  updateRecipe: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const recipeId = Number(params.id);
     const form = await request.formData();
     await updateRecipe(platform.env.DB, recipeId, {
@@ -45,28 +53,31 @@ export const actions: Actions = {
         .filter(Boolean),
       baseMeatGrams: Number(form.get('base_meat_grams') ?? 1000),
       baseAnimal: String(form.get('base_animal') ?? '').trim()
-    });
+    }, actorUserId);
     return { success: true };
   },
 
-  addCut: async ({ request, params, platform }) => {
+  addCut: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const cutName = String(form.get('cut_name') ?? '').trim();
     if (!cutName) return { success: false };
-    await addRecipeCut(platform.env.DB, Number(params.id), cutName);
+    await addRecipeCut(platform.env.DB, Number(params.id), cutName, actorUserId);
     return { success: true };
   },
 
-  deleteCut: async ({ request, params, platform }) => {
+  deleteCut: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
-    await deleteRecipeCut(platform.env.DB, Number(form.get('cut_id')), Number(params.id));
+    await deleteRecipeCut(platform.env.DB, Number(form.get('cut_id')), Number(params.id), actorUserId);
     return { success: true };
   },
 
-  addIngredient: async ({ request, params, platform }) => {
+  addIngredient: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
 
     const ingredientIdRaw = String(form.get('ingredient_id') ?? '').trim();
@@ -82,7 +93,8 @@ export const actions: Actions = {
       ingredientId = await ensureIngredient(
         platform.env.DB,
         newName,
-        isDisplayUnit(unitRaw) ? unitRaw : 'g'
+        isDisplayUnit(unitRaw) ? unitRaw : 'g',
+        actorUserId
       );
     }
 
@@ -95,13 +107,14 @@ export const actions: Actions = {
       amountMlPerBase: ratioType === 'ml' ? amount : null,
       displayUnitOverride,
       sortOrder: Number(form.get('sort_order') ?? 10)
-    });
+    }, actorUserId);
 
     return { success: true };
   },
 
-  updateIngredient: async ({ request, params, platform }) => {
+  updateIngredient: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const ratioType = String(form.get('ratio_type') ?? 'g');
     const amount = Number(form.get('amount') ?? 0);
@@ -115,20 +128,22 @@ export const actions: Actions = {
       amountMlPerBase: ratioType === 'ml' ? amount : null,
       displayUnitOverride: isDisplayUnit(overrideRaw) ? overrideRaw : null,
       sortOrder: Number(form.get('sort_order') ?? 10)
-    });
+    }, actorUserId);
 
     return { success: true };
   },
 
-  deleteIngredient: async ({ request, params, platform }) => {
+  deleteIngredient: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
-    await deleteRecipeIngredient(platform.env.DB, Number(form.get('id')), Number(params.id));
+    await deleteRecipeIngredient(platform.env.DB, Number(form.get('id')), Number(params.id), actorUserId);
     return { success: true };
   },
 
-  createVariation: async ({ request, params, platform }) => {
+  createVariation: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const parentRaw = String(form.get('parent_variation_id') ?? '').trim();
     const ratingRaw = String(form.get('rating') ?? '').trim();
@@ -140,7 +155,8 @@ export const actions: Actions = {
         meatGrams: Number(form.get('meat_grams') ?? 1000),
         animalOverride: String(form.get('animal_override') ?? '').trim(),
         parentVariationId: parentRaw ? Number(parentRaw) : null,
-        rating: ratingRaw ? Number(ratingRaw) : null
+        rating: ratingRaw ? Number(ratingRaw) : null,
+        actorUserId
       });
     } catch (err) {
       return { success: false, message: err instanceof Error ? err.message : 'Failed to create variation' };
@@ -149,16 +165,35 @@ export const actions: Actions = {
     throw redirect(303, `/variations/${id}`);
   },
 
-  deleteVariation: async ({ request, params, platform }) => {
+  deleteVariation: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
-    await deleteVariation(platform.env.DB, Number(form.get('variation_id')), Number(params.id));
+    const deleted = await deleteVariation(
+      platform.env.DB,
+      Number(form.get('variation_id')),
+      actorUserId,
+      Number(params.id)
+    );
+    if (!deleted) return { success: false, message: 'Only the recipe owner can delete variations.' };
     return { success: true };
   },
 
-  deleteRecipe: async ({ params, platform }) => {
+  rateRecipe: async ({ request, params, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false };
-    await removeRecipe(platform.env.DB, Number(params.id));
+    const actorUserId = requireUserId(locals);
+    const form = await request.formData();
+    const rating = Number(form.get('rating') ?? NaN);
+    if (!Number.isFinite(rating)) return { success: false, message: 'Rating is required' };
+    await setRecipeRating(platform.env.DB, Number(params.id), rating, actorUserId);
+    return { success: true };
+  },
+
+  deleteRecipe: async ({ params, platform, locals }) => {
+    if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
+    const deleted = await removeRecipe(platform.env.DB, Number(params.id), actorUserId);
+    if (!deleted) return { success: false, message: 'Only the recipe owner can delete this recipe.' };
     throw redirect(303, '/');
   }
 };

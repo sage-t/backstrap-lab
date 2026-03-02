@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { addRecipeCut, createRecipe, ensureIngredient, upsertRecipeIngredient } from '$lib/server/db';
 import { importRecipeFromText } from '$lib/server/recipe-import';
+import { requireUserId } from '$lib/server/auth';
 
 export const load: PageServerLoad = async () => {
   return {
@@ -16,11 +17,16 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-  create: async ({ request, platform }) => {
+  create: async ({ request, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false, message: 'DB binding missing' };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const title = String(form.get('title') ?? '').trim();
     if (!title) return { success: false, message: 'Title is required' };
+    const baseMeatGrams = Number(form.get('base_meat_grams') ?? NaN);
+    if (!Number.isFinite(baseMeatGrams) || baseMeatGrams <= 0) {
+      return { success: false, message: 'Base meat grams is required' };
+    }
 
     const id = await createRecipe(platform.env.DB, {
       title,
@@ -29,15 +35,16 @@ export const actions: Actions = {
         .split(',')
         .map((tag) => tag.trim())
         .filter(Boolean),
-      baseMeatGrams: Number(form.get('base_meat_grams') ?? 1000),
+      baseMeatGrams,
       baseAnimal: String(form.get('base_animal') ?? '').trim()
-    });
+    }, actorUserId);
 
     throw redirect(303, `/recipes/${id}`);
   },
 
-  importText: async ({ request, platform }) => {
+  importText: async ({ request, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false, message: 'DB binding missing' };
+    requireUserId(locals);
     const apiKey = platform.env.OPENAI_API_KEY;
     if (!apiKey) {
       return { success: false, message: 'OPENAI_API_KEY is missing in environment secrets' };
@@ -63,8 +70,9 @@ export const actions: Actions = {
     }
   },
 
-  createFromImport: async ({ request, platform }) => {
+  createFromImport: async ({ request, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false, message: 'DB binding missing' };
+    const actorUserId = requireUserId(locals);
     const form = await request.formData();
     const raw = String(form.get('imported_json') ?? '').trim();
     if (!raw) return { success: false, message: 'Missing imported draft' };
@@ -96,11 +104,11 @@ export const actions: Actions = {
       tags: Array.isArray(draft.tags) ? draft.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
       baseMeatGrams: Number(draft.baseMeatGrams ?? 1000),
       baseAnimal: String(draft.baseAnimal ?? '').trim()
-    });
+    }, actorUserId);
 
     const cuts = Array.isArray(draft.cuts) ? draft.cuts.map((cut) => String(cut).trim()).filter(Boolean) : [];
     for (const cut of cuts) {
-      await addRecipeCut(platform.env.DB, recipeId, cut);
+      await addRecipeCut(platform.env.DB, recipeId, cut, actorUserId);
     }
 
     const ingredients = Array.isArray(draft.ingredients) ? draft.ingredients : [];
@@ -109,7 +117,7 @@ export const actions: Actions = {
       const name = String(row.name ?? '').trim();
       if (!name) continue;
 
-      const ingredientId = await ensureIngredient(platform.env.DB, name, row.displayUnitOverride ?? 'g');
+      const ingredientId = await ensureIngredient(platform.env.DB, name, row.displayUnitOverride ?? 'g', actorUserId);
       await upsertRecipeIngredient(platform.env.DB, {
         recipeId,
         ingredientId,
@@ -121,7 +129,7 @@ export const actions: Actions = {
           row.amountMlPerBase !== null && Number.isFinite(row.amountMlPerBase) ? row.amountMlPerBase : null,
         displayUnitOverride: row.displayUnitOverride ?? null,
         sortOrder: index + 1
-      });
+      }, actorUserId);
     }
 
     throw redirect(303, `/recipes/${recipeId}`);

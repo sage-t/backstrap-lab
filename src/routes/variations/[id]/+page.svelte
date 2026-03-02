@@ -11,6 +11,8 @@
   notes={data.notes}
   variationIngredients={data.variationIngredients}
   ingredientCatalog={data.ingredientCatalog}
+  canEditVariation={data.canEditVariation}
+  canDeleteVariation={data.canDeleteVariation}
 />
 
 {#if form?.message}
