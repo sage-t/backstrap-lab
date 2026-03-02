@@ -48,6 +48,7 @@ export async function importRecipeFromText(params: {
   recipeText: string;
 }): Promise<NormalizedImportedRecipe> {
   const detected = detectMeatWeightFromText(params.recipeText);
+  const inferred = inferRecipeFieldsFromText(params.recipeText);
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -156,13 +157,10 @@ export async function importRecipeFromText(params: {
     throw new Error(`OpenAI parse failed (${response.status}): ${body.slice(0, 300)}`);
   }
 
-  const payload = (await response.json()) as {
-    output_text?: string;
-  };
-
-  const rawJson = payload.output_text ?? '{}';
+  const payload = (await response.json()) as Record<string, unknown>;
+  const rawJson = extractJsonTextFromResponse(payload);
   const parsed = safeParseRecipeDraft(rawJson);
-  return normalizeDraft(parsed, detected);
+  return normalizeDraft(parsed, detected, inferred);
 }
 
 function safeParseRecipeDraft(json: string): ImportedRecipeDraft {
@@ -170,7 +168,17 @@ function safeParseRecipeDraft(json: string): ImportedRecipeDraft {
   try {
     parsed = JSON.parse(json);
   } catch {
-    throw new Error('AI returned invalid JSON');
+    const start = json.indexOf('{');
+    const end = json.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        parsed = JSON.parse(json.slice(start, end + 1));
+      } catch {
+        throw new Error('AI returned invalid JSON');
+      }
+    } else {
+      throw new Error('AI returned invalid JSON');
+    }
   }
 
   if (!parsed || typeof parsed !== 'object') throw new Error('AI response is not an object');
@@ -208,9 +216,17 @@ function safeParseRecipeDraft(json: string): ImportedRecipeDraft {
 
 function normalizeDraft(
   draft: ImportedRecipeDraft,
-  detected: { baseMeatGrams: number | null; note: string; meatDescription: string }
+  detected: { baseMeatGrams: number | null; note: string; meatDescription: string },
+  inferred: {
+    title: string;
+    description: string;
+    tags: string[];
+    baseAnimal: string;
+    cuts: string[];
+    ingredients: ImportedIngredient[];
+  }
 ): NormalizedImportedRecipe {
-  const title = draft.title || 'Imported Recipe';
+  const title = draft.title || inferred.title || 'Imported Recipe';
   let basis = draft.meat_weight_basis;
   let hasDescription = Boolean(draft.meat_description);
   const baseMeatGrams =
@@ -237,7 +253,10 @@ function normalizeDraft(
     );
   }
 
-  const ingredients = draft.ingredients
+  const sourceIngredients =
+    draft.ingredients.length > 0 ? draft.ingredients : inferred.ingredients;
+
+  const ingredients = sourceIngredients
     .filter((item) => item.name && Number.isFinite(item.amount_per_base) && item.amount_per_base > 0)
     .map((item) => {
       if (item.unit === 'g') {
@@ -261,13 +280,13 @@ function normalizeDraft(
 
   return {
     title,
-    description: draft.description,
-    tags: draft.tags,
+    description: draft.description || inferred.description,
+    tags: draft.tags.length > 0 ? draft.tags : inferred.tags,
     baseMeatGrams: resolvedBaseMeatGrams,
-    baseAnimal: draft.base_animal,
+    baseAnimal: draft.base_animal || inferred.baseAnimal,
     meatWeightBasis: basis === 'estimated_from_description' ? 'estimated_from_description' : 'explicit',
     meatWeightNote: resolvedNote,
-    cuts: draft.cuts.filter(Boolean),
+    cuts: (draft.cuts.length > 0 ? draft.cuts : inferred.cuts).filter(Boolean),
     ingredients
   };
 }
@@ -361,4 +380,174 @@ function detectMeatWeightFromText(text: string): {
     note: matched.join('; '),
     meatDescription: matched.join('; ')
   };
+}
+
+function extractJsonTextFromResponse(payload: Record<string, unknown>): string {
+  const direct = payload.output_text;
+  if (typeof direct === 'string' && direct.trim()) return direct;
+
+  const output = payload.output;
+  if (Array.isArray(output)) {
+    const chunks: string[] = [];
+    for (const item of output) {
+      if (!item || typeof item !== 'object') continue;
+      const content = (item as { content?: unknown }).content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content) {
+        if (!part || typeof part !== 'object') continue;
+        const p = part as { type?: unknown; text?: unknown };
+        if (p.type === 'output_text' && typeof p.text === 'string') chunks.push(p.text);
+      }
+    }
+    const merged = chunks.join('\n').trim();
+    if (merged) return merged;
+  }
+
+  return '{}';
+}
+
+function inferRecipeFieldsFromText(text: string): {
+  title: string;
+  description: string;
+  tags: string[];
+  baseAnimal: string;
+  cuts: string[];
+  ingredients: ImportedIngredient[];
+} {
+  const rawLines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const titleCandidates = rawLines
+    .filter((line) => !line.startsWith('*') && !line.startsWith('-'))
+    .slice(0, 3);
+  const title = titleCandidates.slice(0, 2).join(' - ') || 'Imported Recipe';
+
+  const description = rawLines
+    .find((line) => !line.startsWith('*') && !line.startsWith('-') && line !== titleCandidates[0])
+    ?? '';
+
+  const lower = text.toLowerCase();
+  const baseAnimal = detectAnimal(lower);
+  const cuts = detectCuts(lower);
+  const tags = detectTags(lower, baseAnimal);
+  const ingredients = detectIngredientsFromText(rawLines);
+
+  return { title, description, tags, baseAnimal, cuts, ingredients };
+}
+
+function detectAnimal(lowerText: string): string {
+  const animals = ['venison', 'deer', 'elk', 'moose', 'boar', 'turkey', 'duck', 'goose', 'rabbit'];
+  const match = animals.find((animal) => lowerText.includes(animal));
+  return match ?? '';
+}
+
+function detectCuts(lowerText: string): string[] {
+  const cuts = ['backstrap', 'loin', 'shoulder', 'leg', 'hind quarter', 'front leg', 'tenderloin'];
+  return cuts.filter((cut) => lowerText.includes(cut));
+}
+
+function detectTags(lowerText: string, baseAnimal: string): string[] {
+  const tags = new Set<string>();
+  if (baseAnimal) tags.add(baseAnimal);
+  const keywords = ['sausage', 'smoked', 'grilled', 'jerky', 'spicy', 'cheddar', 'jalapeno'];
+  for (const keyword of keywords) {
+    if (lowerText.includes(keyword)) tags.add(keyword);
+  }
+  return Array.from(tags);
+}
+
+function detectIngredientsFromText(lines: string[]): ImportedIngredient[] {
+  const results: ImportedIngredient[] = [];
+  const seen = new Set<string>();
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^[*-]\s*/, '').trim();
+    if (!line) continue;
+
+    const quantity = extractQuantityUnit(line);
+    if (!quantity) continue;
+
+    const name = extractIngredientName(line);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const converted = normalizeQuantityToSupportedUnits(quantity.value, quantity.unit);
+    if (!converted) continue;
+
+    results.push({
+      name,
+      amount_per_base: converted.amount,
+      unit: converted.unit,
+      display_unit: converted.displayUnit
+    });
+  }
+
+  return results;
+}
+
+function extractQuantityUnit(line: string): { value: number; unit: string } | null {
+  const normalized = line.toLowerCase();
+  const re = /([~≈]?\s*\d+(?:\.\d+)?)\s*(lbs?|pounds?|kg|grams?|g|ml|tbsp|tsp|cups?|cup)\b/g;
+  let match: RegExpExecArray | null = null;
+
+  let preferred: { value: number; unit: string; score: number } | null = null;
+  while ((match = re.exec(normalized)) !== null) {
+    const raw = match[1].replace(/[~≈\s]/g, '');
+    const value = Number(raw);
+    const unit = match[2];
+    if (!Number.isFinite(value) || value <= 0) continue;
+    const score =
+      unit === 'g' || unit === 'gram' || unit === 'grams'
+        ? 5
+        : unit === 'ml'
+          ? 4
+          : unit === 'tbsp'
+            ? 3
+            : unit === 'tsp'
+              ? 2
+              : unit.startsWith('cup')
+                ? 1
+                : 0;
+    if (!preferred || score > preferred.score) {
+      preferred = { value, unit, score };
+    }
+  }
+
+  return preferred ? { value: preferred.value, unit: preferred.unit } : null;
+}
+
+function normalizeQuantityToSupportedUnits(
+  value: number,
+  unit: string
+): { amount: number; unit: ImportUnit; displayUnit: DisplayUnit } | null {
+  if (unit === 'g' || unit === 'gram' || unit === 'grams') return { amount: value, unit: 'g', displayUnit: 'g' };
+  if (unit === 'ml') return { amount: value, unit: 'ml', displayUnit: 'ml' };
+  if (unit === 'tbsp') return { amount: value, unit: 'tbsp', displayUnit: 'tbsp' };
+  if (unit === 'tsp') return { amount: value, unit: 'tsp', displayUnit: 'tsp' };
+  if (unit === 'cup' || unit === 'cups') return { amount: value * 240, unit: 'ml', displayUnit: 'ml' };
+  if (unit === 'kg') return { amount: value * 1000, unit: 'g', displayUnit: 'g' };
+  if (unit === 'lb' || unit === 'lbs' || unit === 'pound' || unit === 'pounds') {
+    return { amount: value * 453.59237, unit: 'g', displayUnit: 'g' };
+  }
+  return null;
+}
+
+function extractIngredientName(line: string): string {
+  if (line.includes(':')) {
+    return line
+      .split(':')[0]
+      .replace(/[()]/g, '')
+      .replace(/\bopt\.?\b/gi, '')
+      .trim();
+  }
+
+  return line
+    .replace(/^[~≈]?\s*\d+(?:\.\d+)?\s*(lbs?|pounds?|kg|grams?|g|ml|tbsp|tsp|cups?|cup)\b/i, '')
+    .replace(/[()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
