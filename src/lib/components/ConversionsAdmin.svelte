@@ -27,6 +27,10 @@
     <p class="muted">
       Set either grams per tsp or grams per ml. If either value exists, unit conversions can be computed.
     </p>
+    <form method="POST" action="?/autoEstimateMissing" class="auto-form" use:enhanceForm={{ successMessage: 'AI estimate run complete' }}>
+      <Button type="submit" variant="primary">Auto-estimate missing with AI</Button>
+      <p class="muted small">Fills only missing densities, does not overwrite existing values.</p>
+    </form>
   </header>
 
   {#if rows.length === 0}
@@ -112,6 +116,13 @@
     gap: var(--space-2);
   }
 
+  .auto-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
   .table-wrap {
     overflow-x: auto;
   }
@@ -145,6 +156,10 @@
     background: linear-gradient(145deg, #f8fbff, #f9fffd);
     padding: var(--space-3);
     border-radius: var(--radius-md);
+  }
+
+  .small {
+    font-size: 0.8rem;
   }
 
   @media (max-width: 900px) {
