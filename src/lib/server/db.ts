@@ -1,4 +1,13 @@
 import type { DisplayUnit, ScaleInputRow } from '$lib/scaling';
+import {
+  DEFAULT_MEASUREMENT_PREFERENCES,
+  isVolumePreference,
+  isWeightPreference,
+  normalizeMeasurementPreferences,
+  type MeasurementPreferences,
+  type VolumePreference,
+  type WeightPreference
+} from '$lib/measurement';
 
 export const DEV_USER_ID = 'local-dev';
 
@@ -28,6 +37,69 @@ export async function queryFirst<T>(db: D1Database, sql: string, ...params: unkn
 
 export async function exec(db: D1Database, sql: string, ...params: unknown[]): Promise<D1Result> {
   return db.prepare(sql).bind(...params).run();
+}
+
+export async function getUserMeasurementSettings(
+  db: D1Database,
+  actorUserId?: string | null
+): Promise<MeasurementPreferences> {
+  const actor = asActor(actorUserId);
+  try {
+    const row = await queryFirst<{
+      weight_preference: string;
+      volume_preference: string;
+    }>(
+      db,
+      `SELECT weight_preference, volume_preference
+       FROM user_settings
+       WHERE user_id = ?`,
+      actor
+    );
+
+    return normalizeMeasurementPreferences(
+      row
+        ? {
+            weightPreference: isWeightPreference(row.weight_preference)
+              ? row.weight_preference
+              : DEFAULT_MEASUREMENT_PREFERENCES.weightPreference,
+            volumePreference: isVolumePreference(row.volume_preference)
+              ? row.volume_preference
+              : DEFAULT_MEASUREMENT_PREFERENCES.volumePreference
+          }
+        : DEFAULT_MEASUREMENT_PREFERENCES
+    );
+  } catch {
+    // Graceful fallback when migrations are not yet applied.
+    return DEFAULT_MEASUREMENT_PREFERENCES;
+  }
+}
+
+export async function upsertUserMeasurementSettings(
+  db: D1Database,
+  settings: {
+    weightPreference: WeightPreference;
+    volumePreference: VolumePreference;
+  },
+  actorUserId?: string | null
+) {
+  const actor = asActor(actorUserId);
+  const normalized = normalizeMeasurementPreferences(settings) as {
+    weightPreference: WeightPreference;
+    volumePreference: VolumePreference;
+  };
+  await exec(
+    db,
+    `INSERT INTO user_settings (user_id, weight_preference, volume_preference, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       weight_preference = excluded.weight_preference,
+       volume_preference = excluded.volume_preference,
+       updated_at = excluded.updated_at`,
+    actor,
+    normalized.weightPreference,
+    normalized.volumePreference,
+    nowIso()
+  );
 }
 
 export async function listRecipes(db: D1Database, q: string) {

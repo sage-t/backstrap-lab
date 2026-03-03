@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { MeasurementPreferences } from '$lib/measurement';
+  import { formatWeightFromGrams } from '$lib/measurement';
   import Badge from '$lib/ui/Badge.svelte';
   import Button from '$lib/ui/Button.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -6,7 +8,8 @@
 
   let {
     variations,
-    allowDelete = false
+    allowDelete = false,
+    measurementPrefs
   }: {
     variations: Array<{
       id: number;
@@ -18,6 +21,7 @@
       note_count: number;
     }>;
     allowDelete?: boolean;
+    measurementPrefs: MeasurementPreferences;
   } = $props();
 
   let showDeleteDialog = $state(false);
@@ -61,7 +65,7 @@
           {#each variations as row}
             <tr>
               <td>{row.cooked_at.slice(0, 10)}</td>
-              <td>{row.meat_grams}g</td>
+              <td>{formatWeightFromGrams(row.meat_grams, measurementPrefs)}</td>
               <td>{row.animal_override ?? '-'}</td>
               <td>
                 {#if row.rating === null}

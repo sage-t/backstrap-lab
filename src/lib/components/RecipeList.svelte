@@ -146,6 +146,7 @@
   </nav>
 
   <footer class="admin-links">
+    <a href="/settings">Settings</a>
     <a href="/admin/ingredients">Ingredients</a>
     <a href="/admin/conversions">Conversions</a>
     <a href="/admin/seed">Seed</a>

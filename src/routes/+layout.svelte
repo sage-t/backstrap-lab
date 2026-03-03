@@ -14,6 +14,13 @@
       <div class="card user-chip">
         <p class="muted">Signed in</p>
         <p class="identity">{data.user.email ?? data.user.id}</p>
+        <p class="muted units-line">
+          Units:
+          {data.measurementPrefs.weightPreference === 'imperial_lb_oz' ? 'lb+oz' : 'g'}
+          /
+          {data.measurementPrefs.volumePreference === 'kitchen_us' ? 'cups+tbsp+tsp' : 'ml'}
+          · <a href="/settings">change</a>
+        </p>
       </div>
     {/if}
     <RecipeList recipes={data.recipes} q={data.q} />
@@ -70,6 +77,10 @@
   .identity {
     font-weight: 700;
     font-size: 0.9rem;
+  }
+
+  .units-line {
+    font-size: 0.8rem;
   }
 
   .load-shell {

@@ -9,6 +9,10 @@
   import Modal from '$lib/ui/Modal.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { enhanceForm } from '$lib/ui/enhance-form';
+  import {
+    formatRatioPerBase,
+    formatWeightFromGrams
+  } from '$lib/measurement';
 
   let { data, form } = $props();
 
@@ -32,7 +36,7 @@
   <div class="workspace-title">
     <h1>{data.recipe.title}</h1>
     <div class="workspace-meta">
-      <Badge tone="primary">{data.recipe.baseMeatGrams}g base</Badge>
+      <Badge tone="primary">{formatWeightFromGrams(data.recipe.baseMeatGrams, data.measurementPrefs)} base</Badge>
       {#if data.recipe.baseAnimal}
         <Badge>{data.recipe.baseAnimal}</Badge>
       {/if}
@@ -138,6 +142,7 @@
           recipeId={data.recipe.id}
           recipeIngredients={data.recipeIngredients}
           recipeBaseMeatGrams={data.recipe.baseMeatGrams}
+          measurementPrefs={data.measurementPrefs}
         />
       {:else}
         <section class="stack">
@@ -146,11 +151,11 @@
             {#each data.recipeIngredients as ingredient}
               <li>
                 {ingredient.name}:
-                {#if ingredient.amount_grams_per_base !== null}
-                  {ingredient.amount_grams_per_base} g/base
-                {:else}
-                  {ingredient.amount_ml_per_base} ml/base
-                {/if}
+                {formatRatioPerBase(
+                  ingredient.amount_grams_per_base,
+                  ingredient.amount_ml_per_base,
+                  data.measurementPrefs
+                )}
               </li>
             {/each}
           </ul>
@@ -161,7 +166,11 @@
 
   {#if activeTab === 'variations'}
     <div class="stack tab-panel">
-      <VariationsList variations={data.variations} allowDelete={data.canDeleteRecipe} />
+      <VariationsList
+        variations={data.variations}
+        allowDelete={data.canDeleteRecipe}
+        measurementPrefs={data.measurementPrefs}
+      />
       <VariationTree variations={data.variations} />
     </div>
   {/if}
@@ -181,6 +190,7 @@
     <label>
       Meat grams
       <input type="number" min="1" name="meat_grams" value={data.recipe.baseMeatGrams} required />
+      <span class="muted small">Equivalent to {formatWeightFromGrams(data.recipe.baseMeatGrams, data.measurementPrefs)}</span>
     </label>
     <label>
       Animal override
@@ -335,6 +345,10 @@
 
   .hidden-delete {
     display: none;
+  }
+
+  .small {
+    font-size: 0.8rem;
   }
 
   @media (max-width: 900px) {

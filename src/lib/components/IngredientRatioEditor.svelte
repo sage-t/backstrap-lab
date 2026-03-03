@@ -1,4 +1,9 @@
 <script lang="ts">
+  import type { MeasurementPreferences } from '$lib/measurement';
+  import {
+    formatRatioPerBase,
+    formatWeightFromGrams
+  } from '$lib/measurement';
   import type { DisplayUnit } from '$lib/scaling';
   import Button from '$lib/ui/Button.svelte';
   import Badge from '$lib/ui/Badge.svelte';
@@ -9,7 +14,8 @@
     ingredients,
     recipeId,
     recipeIngredients,
-    recipeBaseMeatGrams
+    recipeBaseMeatGrams,
+    measurementPrefs
   }: {
     ingredients: Array<{ id: number; name: string; default_display_unit: DisplayUnit }>;
     recipeId: number;
@@ -24,6 +30,7 @@
       default_display_unit: DisplayUnit;
     }>;
     recipeBaseMeatGrams: number;
+    measurementPrefs: MeasurementPreferences;
   } = $props();
 
   let previewMeatGrams = $state(1500);
@@ -81,6 +88,7 @@
       <label>
         Meat grams
         <input type="number" min="1" bind:value={previewMeatGrams} />
+        <span class="muted small">Displayed as {formatWeightFromGrams(previewMeatGrams, measurementPrefs)}</span>
       </label>
     </div>
     <ul class="preview-list">
@@ -88,7 +96,16 @@
         <li class="muted">Add ingredient ratios to see live scaling preview.</li>
       {:else}
         {#each previewRows as row}
-          <li><span>{row.name}</span> <strong>{row.amount.toFixed(row.unit === 'g' && row.amount < 50 ? 1 : 0)} {row.unit}</strong></li>
+          <li>
+            <span>{row.name}</span>
+            <strong>
+              {#if row.unit === 'g'}
+                {formatRatioPerBase(row.amount, null, measurementPrefs).replace('/base', '')}
+              {:else}
+                {formatRatioPerBase(null, row.amount, measurementPrefs).replace('/base', '')}
+              {/if}
+            </strong>
+          </li>
         {/each}
       {/if}
     </ul>

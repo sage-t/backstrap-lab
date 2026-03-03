@@ -93,6 +93,15 @@ Identity handling in app:
   - delete any variation under that recipe
 - Variation creator or recipe owner can edit a variation and its overrides/cuts.
 
+## Measurement display settings
+
+- Configure per-user defaults at `/settings`.
+- Database remains grams/ml.
+- UI can display:
+  - weight: `g` or compound `lb + oz`
+  - volume: `ml` or compound `cups + tbsp + tsp`
+- Scaled ingredient output and meat amounts follow each user preference.
+
 ## Revision model
 
 - Recipe edits create immutable snapshots in `recipe_revisions`.
@@ -107,6 +116,7 @@ Identity handling in app:
 - `0003_variation_tree_and_rating.sql`: parent variation tree + variation rating
 - `0004_recipe_revisions.sql`: immutable recipe snapshots + variation pinning
 - `0005_recipe_ratings.sql`: per-user recipe ratings
+- `0006_user_measurement_settings.sql`: per-user display unit preferences
 
 ## Useful commands
 

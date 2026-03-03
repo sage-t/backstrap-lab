@@ -1,4 +1,9 @@
 <script lang="ts">
+  import type { MeasurementPreferences } from '$lib/measurement';
+  import {
+    formatIngredientAmount,
+    formatWeightFromGrams
+  } from '$lib/measurement';
   import type { DisplayUnit, ScaledIngredient } from '$lib/scaling';
   import Button from '$lib/ui/Button.svelte';
   import Badge from '$lib/ui/Badge.svelte';
@@ -15,7 +20,8 @@
     variationIngredients,
     ingredientCatalog,
     canEditVariation,
-    canDeleteVariation
+    canDeleteVariation,
+    measurementPrefs
   }: {
     variation: {
       id: number;
@@ -49,12 +55,15 @@
     ingredientCatalog: Array<{ id: number; name: string; default_display_unit: DisplayUnit }>;
     canEditVariation: boolean;
     canDeleteVariation: boolean;
+    measurementPrefs: MeasurementPreferences;
   } = $props();
 
   const scaleFactor = $derived((variation.meatGrams / variation.baseMeatGrams).toFixed(2));
+  const meatDisplay = $derived(formatWeightFromGrams(variation.meatGrams, measurementPrefs));
+  const baseMeatDisplay = $derived(formatWeightFromGrams(variation.baseMeatGrams, measurementPrefs));
   const copyText = $derived.by(() => {
-    const lines = scaled.map((row) => `- ${row.ingredientName}: ${row.displayAmount} ${row.displayUnit}`);
-    return `${variation.recipeTitle} variation (#${variation.id})\\nMeat: ${variation.meatGrams}g (x${scaleFactor} of base)\\n\\n${lines.join('\\n')}`;
+    const lines = scaled.map((row) => `- ${row.ingredientName}: ${formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs)}`);
+    return `${variation.recipeTitle} variation (#${variation.id})\\nMeat: ${meatDisplay} (x${scaleFactor} of base)\\n\\n${lines.join('\\n')}`;
   });
 
   let noteRating = $state<number | null>(null);
@@ -99,7 +108,7 @@
     <p class="muted">Variation #{variation.id} · Recipe revision {variation.recipeRevisionId}</p>
   </div>
   <div class="head-metrics">
-    <Badge tone="primary">{variation.meatGrams}g meat</Badge>
+    <Badge tone="primary">{meatDisplay} meat</Badge>
     <Badge>x{scaleFactor} scale factor</Badge>
     {#if variation.rating !== null}
       <Badge tone="success">Rating {variation.rating}/5</Badge>
@@ -123,7 +132,7 @@
   <header class="section-head">
     <h2>Scaled Ingredients</h2>
     <p class="muted">
-      Base: {variation.baseMeatGrams}g {variation.baseAnimal ? `(${variation.baseAnimal})` : ''}
+      Base: {baseMeatDisplay} {variation.baseAnimal ? `(${variation.baseAnimal})` : ''}
     </p>
   </header>
   {#if scaled.length === 0}
@@ -135,7 +144,7 @@
           <label>
             <input type="checkbox" />
             <span class="name">{row.ingredientName}</span>
-            <span class="amount">{row.displayAmount} {row.displayUnit}</span>
+            <span class="amount">{formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs)}</span>
             {#if row.warning}
               <Badge tone="warning">{row.warning}</Badge>
             {/if}
@@ -204,6 +213,7 @@
         <label>
           Meat grams
           <input type="number" name="meat_grams" min="1" value={variation.meatGrams} required />
+          <span class="muted small">Shown as {meatDisplay} with current settings.</span>
         </label>
         <label>
           Animal override
@@ -227,6 +237,7 @@
         <label>
           Meat grams
           <input type="number" name="meat_grams" min="1" value={variation.meatGrams} required />
+          <span class="muted small">Shown as {meatDisplay} with current settings.</span>
         </label>
         <label>
           Animal override
@@ -533,6 +544,10 @@
     padding: var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+  }
+
+  .small {
+    font-size: 0.78rem;
   }
 
   @media (max-width: 1050px) {

@@ -4,6 +4,10 @@
   import Button from '$lib/ui/Button.svelte';
   import Badge from '$lib/ui/Badge.svelte';
   import { enhanceForm } from '$lib/ui/enhance-form';
+  import {
+    formatRatioPerBase,
+    formatWeightFromGrams
+  } from '$lib/measurement';
 
   let { data, form } = $props();
   let activeTab = $state<'manual' | 'import'>('manual');
@@ -51,7 +55,7 @@
         <div class="card stack draft-preview">
           <h3>Imported draft preview</h3>
           <p><strong>Title:</strong> {form.imported.title}</p>
-          <p><strong>Base meat:</strong> {form.imported.baseMeatGrams}g</p>
+          <p><strong>Base meat:</strong> {formatWeightFromGrams(form.imported.baseMeatGrams, data.measurementPrefs)}</p>
           {#if form.imported.meatWeightBasis === 'estimated_from_description'}
             <p class="warning">
               <strong>Estimated weight:</strong> {form.imported.meatWeightNote || 'Estimated from description.'}
@@ -69,11 +73,11 @@
               <li>
                 <span>{ingredient.name}</span>
                 <strong>
-                  {#if ingredient.amountGramsPerBase !== null}
-                    {ingredient.amountGramsPerBase} g/base
-                  {:else}
-                    {ingredient.amountMlPerBase} ml/base
-                  {/if}
+                  {formatRatioPerBase(
+                    ingredient.amountGramsPerBase,
+                    ingredient.amountMlPerBase,
+                    data.measurementPrefs
+                  )}
                 </strong>
               </li>
             {/each}

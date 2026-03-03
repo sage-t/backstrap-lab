@@ -13,6 +13,7 @@
   ingredientCatalog={data.ingredientCatalog}
   canEditVariation={data.canEditVariation}
   canDeleteVariation={data.canDeleteVariation}
+  measurementPrefs={data.measurementPrefs}
 />
 
 {#if form?.message}
