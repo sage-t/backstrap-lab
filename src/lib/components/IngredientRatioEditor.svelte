@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { MeasurementPreferences } from '$lib/measurement';
   import {
-    formatRatioPerBase,
+    formatIngredientAmount,
     formatWeightFromGrams
   } from '$lib/measurement';
-  import type { DisplayUnit } from '$lib/scaling';
+  import { scaleIngredients, type DisplayUnit } from '$lib/scaling';
   import Button from '$lib/ui/Button.svelte';
   import Badge from '$lib/ui/Badge.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -28,6 +28,8 @@
       display_unit_override: DisplayUnit | null;
       sort_order: number;
       default_display_unit: DisplayUnit;
+      grams_per_ml: number | null;
+      grams_per_tsp: number | null;
     }>;
     recipeBaseMeatGrams: number;
     measurementPrefs: MeasurementPreferences;
@@ -48,14 +50,26 @@
   const matchedIngredientId = $derived.by(() => ingredientByName.get(ingredientQuery.trim().toLowerCase()) ?? 0);
 
   const previewRows = $derived.by(() => {
-    const factor = Math.max(1, Number(previewMeatGrams) || 1) / Math.max(1, recipeBaseMeatGrams || 1);
-    return recipeIngredients.map((row) => {
-      const amount = row.amount_grams_per_base !== null
-        ? row.amount_grams_per_base * factor
-        : (row.amount_ml_per_base ?? 0) * factor;
-      const unit = row.amount_grams_per_base !== null ? 'g' : 'ml';
-      return { name: row.name, amount, unit };
+    const scaled = scaleIngredients({
+      baseMeatGrams: Math.max(1, Number(recipeBaseMeatGrams) || 1),
+      targetMeatGrams: Math.max(1, Number(previewMeatGrams) || 1),
+      rows: recipeIngredients.map((row) => ({
+        ingredientId: row.ingredient_id,
+        ingredientName: row.name,
+        amountGramsPerBase: row.amount_grams_per_base,
+        amountMlPerBase: row.amount_ml_per_base,
+        defaultDisplayUnit: row.default_display_unit,
+        displayUnitOverride: row.display_unit_override,
+        gramsPerMl: row.grams_per_ml,
+        gramsPerTsp: row.grams_per_tsp
+      }))
     });
+
+    return scaled.map((row) => ({
+      name: row.ingredientName,
+      text: formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs),
+      warning: row.warning
+    }));
   });
 
   function openDeleteConfirm(event: MouseEvent) {
@@ -98,13 +112,10 @@
         {#each previewRows as row}
           <li>
             <span>{row.name}</span>
-            <strong>
-              {#if row.unit === 'g'}
-                {formatRatioPerBase(row.amount, null, measurementPrefs).replace('/base', '')}
-              {:else}
-                {formatRatioPerBase(null, row.amount, measurementPrefs).replace('/base', '')}
-              {/if}
-            </strong>
+            <strong>{row.text}</strong>
+            {#if row.warning}
+              <Badge tone="warning">{row.warning}</Badge>
+            {/if}
           </li>
         {/each}
       {/if}

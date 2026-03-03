@@ -64,7 +64,10 @@ function compactWeightImperial(grams: number): string {
   const sign = grams < 0 ? '-' : '';
   const totalOz = Math.abs(grams) / GRAMS_PER_OUNCE;
   if (totalOz < OUNCES_PER_POUND) {
-    return `${sign}${formatNumber(roundTo(totalOz, 0.25), 2)} oz`;
+    const step = totalOz < 1 ? 0.01 : 0.25;
+    let roundedOz = roundTo(totalOz, step);
+    if (roundedOz <= 0 && totalOz > 0) roundedOz = step;
+    return `${sign}${formatNumber(roundedOz, step < 0.1 ? 2 : 2)} oz`;
   }
 
   let pounds = Math.floor(totalOz / OUNCES_PER_POUND);
