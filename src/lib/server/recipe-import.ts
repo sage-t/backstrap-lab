@@ -73,6 +73,8 @@ export async function importRecipeFromText(params: {
               text: [
                 'Interpret this recipe text.',
                 'Infer a canonical base recipe where ingredient amounts are per base meat amount.',
+                'For ingredient amounts, prioritize explicit numeric quantities from the text (especially grams in lines like "X g -> Y tbsp").',
+                'Do not invent or normalize ingredient amounts beyond what the text supports.',
                 'Do NOT default base meat weight.',
                 'If explicit meat weight is missing but there is a meat description (example: \"1 deer front leg\"), estimate grams as best as possible.',
                 'If neither explicit weight nor a usable meat description exists, set meat_weight_basis to \"missing\" and base_meat_grams to null.',
@@ -253,8 +255,7 @@ function normalizeDraft(
     );
   }
 
-  const sourceIngredients =
-    draft.ingredients.length > 0 ? draft.ingredients : inferred.ingredients;
+  const sourceIngredients = mergeImportedIngredients(draft.ingredients, inferred.ingredients);
 
   const ingredients = sourceIngredients
     .filter((item) => item.name && Number.isFinite(item.amount_per_base) && item.amount_per_base > 0)
@@ -309,6 +310,61 @@ function toWeightBasis(value: unknown): ImportedRecipeDraft['meat_weight_basis']
   const v = String(value ?? '').trim();
   if (v === 'explicit' || v === 'estimated_from_description' || v === 'missing') return v;
   return 'missing';
+}
+
+function normalizeIngredientKey(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\bopt(?:ional)?\.?\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function mergeImportedIngredients(
+  aiIngredients: ImportedIngredient[],
+  detectedIngredients: ImportedIngredient[]
+): ImportedIngredient[] {
+  const detectedByKey = new Map<string, ImportedIngredient>();
+  for (const item of detectedIngredients) {
+    const key = normalizeIngredientKey(item.name);
+    if (!key) continue;
+    if (!detectedByKey.has(key)) detectedByKey.set(key, item);
+  }
+
+  const merged: ImportedIngredient[] = [];
+  const seen = new Set<string>();
+
+  for (const ai of aiIngredients) {
+    const key = normalizeIngredientKey(ai.name);
+    if (!key || seen.has(key)) continue;
+
+    const detected = detectedByKey.get(key);
+    if (detected) {
+      merged.push({
+        name: ai.name || detected.name,
+        amount_per_base: detected.amount_per_base,
+        unit: detected.unit,
+        display_unit: detected.display_unit ?? ai.display_unit
+      });
+    } else {
+      merged.push(ai);
+    }
+    seen.add(key);
+  }
+
+  for (const detected of detectedIngredients) {
+    const key = normalizeIngredientKey(detected.name);
+    if (!key || seen.has(key)) continue;
+    merged.push(detected);
+    seen.add(key);
+  }
+
+  if (merged.length > 0) return merged;
+  return detectedIngredients.length > 0 ? detectedIngredients : aiIngredients;
 }
 
 function detectMeatWeightFromText(text: string): {
