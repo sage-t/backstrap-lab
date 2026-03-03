@@ -21,8 +21,16 @@
   let showDeleteRecipeDialog = $state(false);
   let showDeleteCutDialog = $state(false);
   let deleteRecipeForm = $state<HTMLFormElement | null>(null);
+  let deleteRecipeSubmitter = $state<HTMLButtonElement | null>(null);
   let deleteCutForm = $state<HTMLFormElement | null>(null);
   let deleteCutSubmitter = $state<HTMLButtonElement | null>(null);
+
+  function openDeleteRecipeDialog(event: MouseEvent) {
+    event.preventDefault();
+    deleteRecipeSubmitter = event.currentTarget as HTMLButtonElement;
+    deleteRecipeForm = deleteRecipeSubmitter.form;
+    showDeleteRecipeDialog = true;
+  }
 
   function openDeleteCutDialog(event: MouseEvent) {
     event.preventDefault();
@@ -49,7 +57,21 @@
       <Button on:click={() => (activeTab = 'overview')}>Edit</Button>
     {/if}
     {#if data.canDeleteRecipe}
-      <Button variant="destructive" on:click={() => (showDeleteRecipeDialog = true)}>Delete</Button>
+      <form
+        method="POST"
+        action="?/deleteRecipe"
+        bind:this={deleteRecipeForm}
+        class="inline"
+        use:enhanceForm
+      >
+        <Button
+          variant="destructive"
+          type="submit"
+          on:click={openDeleteRecipeDialog}
+        >
+          Delete
+        </Button>
+      </form>
     {/if}
   </div>
 </header>
@@ -123,8 +145,6 @@
             </form>
           </section>
         </details>
-
-        <form bind:this={deleteRecipeForm} method="POST" action="?/deleteRecipe" class="hidden-delete"></form>
       {:else}
         <section class="stack">
           <h3>Cuts</h3>
@@ -222,7 +242,14 @@
   message="This removes the recipe, all revisions, and all variations. This cannot be undone."
   confirmLabel="Delete recipe"
   danger={true}
-  onConfirm={() => deleteRecipeForm?.requestSubmit()}
+  onConfirm={() => {
+    if (!deleteRecipeForm) return;
+    if (deleteRecipeSubmitter && deleteRecipeSubmitter.form === deleteRecipeForm) {
+      deleteRecipeForm.requestSubmit(deleteRecipeSubmitter);
+      return;
+    }
+    deleteRecipeForm.requestSubmit();
+  }}
 />
 
 <ConfirmDialog
@@ -343,8 +370,8 @@
     gap: var(--space-2);
   }
 
-  .hidden-delete {
-    display: none;
+  .inline {
+    display: inline;
   }
 
   .small {

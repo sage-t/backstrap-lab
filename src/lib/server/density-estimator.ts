@@ -14,6 +14,81 @@ export type DensityEstimateItem = {
   note: string;
 };
 
+export type NameDensityEstimate = {
+  gramsPerTsp: number | null;
+  gramsPerMl: number | null;
+  confidence: number;
+  note: string;
+};
+
+const NAME_DENSITY_HINTS: Array<{
+  includes: string[];
+  gramsPerTsp: number;
+  note: string;
+}> = [
+  { includes: ['kosher salt'], gramsPerTsp: 5.7, note: 'rule_of_thumb:kosher_salt' },
+  { includes: ['table salt'], gramsPerTsp: 6, note: 'rule_of_thumb:table_salt' },
+  { includes: ['black pepper'], gramsPerTsp: 2.3, note: 'rule_of_thumb:black_pepper' },
+  { includes: ['paprika'], gramsPerTsp: 2.3, note: 'rule_of_thumb:paprika' },
+  { includes: ['garlic powder'], gramsPerTsp: 3.1, note: 'rule_of_thumb:garlic_powder' },
+  { includes: ['onion powder'], gramsPerTsp: 2.4, note: 'rule_of_thumb:onion_powder' },
+  { includes: ['cumin'], gramsPerTsp: 2.1, note: 'rule_of_thumb:cumin' },
+  { includes: ['coriander'], gramsPerTsp: 1.7, note: 'rule_of_thumb:coriander' },
+  { includes: ['cayenne'], gramsPerTsp: 2.4, note: 'rule_of_thumb:cayenne' },
+  { includes: ['crushed red pepper'], gramsPerTsp: 1.8, note: 'rule_of_thumb:crushed_red_pepper' },
+  { includes: ['red pepper flakes'], gramsPerTsp: 1.8, note: 'rule_of_thumb:red_pepper_flakes' },
+  { includes: ['chili powder'], gramsPerTsp: 2.6, note: 'rule_of_thumb:chili_powder' }
+];
+
+function normalizeIngredientName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function estimateDensityFromName(name: string): NameDensityEstimate | null {
+  const normalized = normalizeIngredientName(name);
+  if (!normalized) return null;
+
+  for (const hint of NAME_DENSITY_HINTS) {
+    if (hint.includes.every((part) => normalized.includes(part))) {
+      return {
+        gramsPerTsp: hint.gramsPerTsp,
+        gramsPerMl: hint.gramsPerTsp / ML_PER_TSP,
+        confidence: 0.62,
+        note: hint.note
+      };
+    }
+  }
+
+  if (normalized.includes('salt')) {
+    const gramsPerTsp = 5.7;
+    return {
+      gramsPerTsp,
+      gramsPerMl: gramsPerTsp / ML_PER_TSP,
+      confidence: 0.5,
+      note: 'rule_of_thumb:generic_salt'
+    };
+  }
+
+  const powderOrGround =
+    normalized.includes('powder') || normalized.includes('ground') || normalized.includes('spice');
+  if (powderOrGround) {
+    const gramsPerTsp = 2.5;
+    return {
+      gramsPerTsp,
+      gramsPerMl: gramsPerTsp / ML_PER_TSP,
+      confidence: 0.42,
+      note: 'rule_of_thumb:generic_powder'
+    };
+  }
+
+  return null;
+}
+
 export async function estimateMissingDensitiesWithAI(params: {
   apiKey: string;
   ingredients: DensityEstimateRequestItem[];

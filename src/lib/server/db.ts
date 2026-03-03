@@ -1059,23 +1059,25 @@ export async function listIngredientsWithConversions(db: D1Database) {
     grams_per_tsp: number | null;
     source_note: string | null;
     volume_ratio_uses: number;
+    total_ratio_uses: number;
   }>(
     db,
     `SELECT i.id, i.name, i.default_display_unit,
             ic.grams_per_ml, ic.grams_per_tsp, ic.source_note,
-            COALESCE(vu.volume_ratio_uses, 0) AS volume_ratio_uses
+            COALESCE(vu.volume_ratio_uses, 0) AS volume_ratio_uses,
+            COALESCE(vu.total_ratio_uses, 0) AS total_ratio_uses
      FROM ingredients i
      LEFT JOIN ingredient_conversions ic ON ic.ingredient_id = i.id
      LEFT JOIN (
-       SELECT ingredient_id, COUNT(*) AS volume_ratio_uses
+       SELECT ingredient_id,
+              COUNT(*) AS total_ratio_uses,
+              SUM(CASE WHEN amount_ml_per_base IS NOT NULL THEN 1 ELSE 0 END) AS volume_ratio_uses
        FROM (
-         SELECT ingredient_id
+         SELECT ingredient_id, amount_ml_per_base
          FROM recipe_revision_ingredients
-         WHERE amount_ml_per_base IS NOT NULL
          UNION ALL
-         SELECT ingredient_id
+         SELECT ingredient_id, amount_ml_per_base
          FROM variation_ingredients
-         WHERE amount_ml_per_base IS NOT NULL
        )
        GROUP BY ingredient_id
      ) vu ON vu.ingredient_id = i.id

@@ -3,7 +3,8 @@
   import {
     formatIngredientAmount,
     formatVolumeFromMl,
-    formatWeightFromGrams
+    formatWeightFromGrams,
+    shouldPreferKitchenVolumeForGrams
   } from '$lib/measurement';
   import { scaleIngredients, type DisplayUnit } from '$lib/scaling';
   import Button from '$lib/ui/Button.svelte';
@@ -68,8 +69,8 @@
 
     return scaled.map((row) => {
       const useKitchenVolume =
-        measurementPrefs.volumePreference === 'kitchen_us' &&
         row.displayUnit === 'g' &&
+        shouldPreferKitchenVolumeForGrams(row.sourceAmountGrams, measurementPrefs) &&
         row.sourceAmountMl !== null;
       return {
         name: row.ingredientName,

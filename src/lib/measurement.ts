@@ -18,6 +18,7 @@ const OUNCES_PER_POUND = 16;
 const ML_PER_TSP = 4.92892;
 const TSP_PER_TBSP = 3;
 const TSP_PER_CUP = 48;
+const KITCHEN_VOLUME_FROM_GRAMS_MAX = 64;
 
 function roundTo(value: number, step: number): number {
   return Math.round(value / step) * step;
@@ -63,6 +64,7 @@ function compactVolumeMetric(ml: number): string {
 function compactWeightImperial(grams: number): string {
   const sign = grams < 0 ? '-' : '';
   const totalOz = Math.abs(grams) / GRAMS_PER_OUNCE;
+  if (totalOz < 0.125) return `${sign}${formatNumber(roundTo(Math.abs(grams), 0.1), 1)} g`;
   if (totalOz < OUNCES_PER_POUND) {
     const step = totalOz < 1 ? 0.01 : 0.25;
     let roundedOz = roundTo(totalOz, step);
@@ -133,6 +135,13 @@ export function normalizeMeasurementPreferences(value: Partial<MeasurementPrefer
     ? value.volumePreference
     : DEFAULT_MEASUREMENT_PREFERENCES.volumePreference;
   return { weightPreference: weight, volumePreference: volume };
+}
+
+export function shouldPreferKitchenVolumeForGrams(grams: number | null | undefined, prefs: MeasurementPreferences): boolean {
+  if (prefs.volumePreference !== 'kitchen_us') return false;
+  if (typeof grams !== 'number' || !Number.isFinite(grams)) return false;
+  const abs = Math.abs(grams);
+  return abs > 0 && abs <= KITCHEN_VOLUME_FROM_GRAMS_MAX;
 }
 
 export function formatWeightFromGrams(grams: number, prefs: MeasurementPreferences): string {

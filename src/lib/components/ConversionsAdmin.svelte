@@ -14,11 +14,15 @@
       grams_per_tsp: number | null;
       source_note: string | null;
       volume_ratio_uses: number;
+      total_ratio_uses: number;
     }>;
   } = $props();
 
-  const hasWarning = (row: { grams_per_ml: number | null; grams_per_tsp: number | null; volume_ratio_uses: number }) =>
-    row.volume_ratio_uses > 0 && row.grams_per_ml === null && row.grams_per_tsp === null;
+  const hasWarning = (row: {
+    grams_per_ml: number | null;
+    grams_per_tsp: number | null;
+    total_ratio_uses: number;
+  }) => row.total_ratio_uses > 0 && row.grams_per_ml === null && row.grams_per_tsp === null;
 </script>
 
 <section class="card stack">
@@ -58,7 +62,7 @@
                 <div class="name-cell">
                   <strong>{row.name}</strong>
                   {#if hasWarning(row)}
-                    <Badge tone="warning">Missing density ({row.volume_ratio_uses} volume ratio use{row.volume_ratio_uses === 1 ? '' : 's'})</Badge>
+                    <Badge tone="warning">Missing density ({row.total_ratio_uses} ratio use{row.total_ratio_uses === 1 ? '' : 's'})</Badge>
                   {/if}
                 </div>
               </td>

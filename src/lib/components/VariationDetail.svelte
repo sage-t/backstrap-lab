@@ -3,7 +3,8 @@
   import {
     formatIngredientAmount,
     formatVolumeFromMl,
-    formatWeightFromGrams
+    formatWeightFromGrams,
+    shouldPreferKitchenVolumeForGrams
   } from '$lib/measurement';
   import type { DisplayUnit, ScaledIngredient } from '$lib/scaling';
   import Button from '$lib/ui/Button.svelte';
@@ -65,8 +66,8 @@
   const copyText = $derived.by(() => {
     const lines = scaled.map((row) => {
       const useKitchenVolume =
-        measurementPrefs.volumePreference === 'kitchen_us' &&
         row.displayUnit === 'g' &&
+        shouldPreferKitchenVolumeForGrams(row.sourceAmountGrams, measurementPrefs) &&
         row.sourceAmountMl !== null;
       const text = useKitchenVolume
         ? formatVolumeFromMl(row.sourceAmountMl ?? 0, measurementPrefs)
@@ -155,7 +156,7 @@
             <input type="checkbox" />
             <span class="name">{row.ingredientName}</span>
             <span class="amount">
-              {#if measurementPrefs.volumePreference === 'kitchen_us' && row.displayUnit === 'g' && row.sourceAmountMl !== null}
+              {#if row.displayUnit === 'g' && shouldPreferKitchenVolumeForGrams(row.sourceAmountGrams, measurementPrefs) && row.sourceAmountMl !== null}
                 {formatVolumeFromMl(row.sourceAmountMl, measurementPrefs)}
               {:else}
                 {formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs)}
