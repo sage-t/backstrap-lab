@@ -329,20 +329,26 @@ function mergeImportedIngredients(
   detectedIngredients: ImportedIngredient[]
 ): ImportedIngredient[] {
   const detectedByKey = new Map<string, ImportedIngredient>();
+  const detectedKeys: string[] = [];
   for (const item of detectedIngredients) {
     const key = normalizeIngredientKey(item.name);
     if (!key) continue;
-    if (!detectedByKey.has(key)) detectedByKey.set(key, item);
+    if (!detectedByKey.has(key)) {
+      detectedByKey.set(key, item);
+      detectedKeys.push(key);
+    }
   }
 
   const merged: ImportedIngredient[] = [];
   const seen = new Set<string>();
+  const usedDetected = new Set<string>();
 
   for (const ai of aiIngredients) {
     const key = normalizeIngredientKey(ai.name);
     if (!key || seen.has(key)) continue;
 
-    const detected = detectedByKey.get(key);
+    const detectedKey = findBestDetectedKey(key, detectedKeys, usedDetected);
+    const detected = detectedKey ? detectedByKey.get(detectedKey) : undefined;
     if (detected) {
       merged.push({
         name: ai.name || detected.name,
@@ -350,6 +356,7 @@ function mergeImportedIngredients(
         unit: detected.unit,
         display_unit: detected.display_unit ?? ai.display_unit
       });
+      usedDetected.add(detectedKey!);
     } else {
       merged.push(ai);
     }
@@ -358,13 +365,43 @@ function mergeImportedIngredients(
 
   for (const detected of detectedIngredients) {
     const key = normalizeIngredientKey(detected.name);
-    if (!key || seen.has(key)) continue;
+    if (!key || seen.has(key) || usedDetected.has(key)) continue;
     merged.push(detected);
     seen.add(key);
   }
 
   if (merged.length > 0) return merged;
   return detectedIngredients.length > 0 ? detectedIngredients : aiIngredients;
+}
+
+function findBestDetectedKey(aiKey: string, detectedKeys: string[], usedDetected: Set<string>): string | null {
+  if (!aiKey) return null;
+  if (detectedKeys.includes(aiKey) && !usedDetected.has(aiKey)) return aiKey;
+
+  const aiTokens = new Set(aiKey.split(' ').filter(Boolean));
+  let best: { key: string; score: number } | null = null;
+
+  for (const detectedKey of detectedKeys) {
+    if (usedDetected.has(detectedKey)) continue;
+    if (detectedKey.includes(aiKey) || aiKey.includes(detectedKey)) {
+      const score = Math.min(aiKey.length, detectedKey.length) / Math.max(aiKey.length, detectedKey.length);
+      if (!best || score > best.score) best = { key: detectedKey, score };
+      continue;
+    }
+
+    const detectedTokens = new Set(detectedKey.split(' ').filter(Boolean));
+    let overlap = 0;
+    for (const token of aiTokens) {
+      if (detectedTokens.has(token)) overlap += 1;
+    }
+    if (overlap === 0) continue;
+    const denom = Math.min(aiTokens.size, detectedTokens.size);
+    if (denom === 0) continue;
+    const score = overlap / denom;
+    if (score >= 0.67 && (!best || score > best.score)) best = { key: detectedKey, score };
+  }
+
+  return best?.key ?? null;
 }
 
 function detectMeatWeightFromText(text: string): {
@@ -519,7 +556,7 @@ function detectIngredientsFromText(lines: string[]): ImportedIngredient[] {
   const seen = new Set<string>();
 
   for (const rawLine of lines) {
-    const line = rawLine.replace(/^[*-]\s*/, '').trim();
+    const line = rawLine.replace(/^[*•-]\s*/, '').trim();
     if (!line) continue;
 
     const quantity = extractQuantityUnit(line);
@@ -547,6 +584,15 @@ function detectIngredientsFromText(lines: string[]): ImportedIngredient[] {
 
 function extractQuantityUnit(line: string): { value: number; unit: string } | null {
   const normalized = line.toLowerCase();
+  if (normalized.includes(':')) {
+    const rhs = normalized.split(':').slice(1).join(':');
+    const gramsMatch = rhs.match(/([~≈]?\s*\d+(?:\.\d+)?)\s*(kg|grams?|g)\b/);
+    if (gramsMatch) {
+      const value = Number(gramsMatch[1].replace(/[~≈\s]/g, ''));
+      const unit = gramsMatch[2];
+      if (Number.isFinite(value) && value > 0) return { value, unit };
+    }
+  }
   const re = /([~≈]?\s*\d+(?:\.\d+)?)\s*(lbs?|pounds?|kg|grams?|g|ml|tbsp|tsp|cups?|cup)\b/g;
   let match: RegExpExecArray | null = null;
 
