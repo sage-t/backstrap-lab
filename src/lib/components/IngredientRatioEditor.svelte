@@ -2,6 +2,7 @@
   import type { MeasurementPreferences } from '$lib/measurement';
   import {
     formatIngredientAmount,
+    formatVolumeFromMl,
     formatWeightFromGrams
   } from '$lib/measurement';
   import { scaleIngredients, type DisplayUnit } from '$lib/scaling';
@@ -65,11 +66,19 @@
       }))
     });
 
-    return scaled.map((row) => ({
-      name: row.ingredientName,
-      text: formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs),
-      warning: row.warning
-    }));
+    return scaled.map((row) => {
+      const useKitchenVolume =
+        measurementPrefs.volumePreference === 'kitchen_us' &&
+        row.displayUnit === 'g' &&
+        row.sourceAmountMl !== null;
+      return {
+        name: row.ingredientName,
+        text: useKitchenVolume
+          ? formatVolumeFromMl(row.sourceAmountMl ?? 0, measurementPrefs)
+          : formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs),
+        warning: row.warning
+      };
+    });
   });
 
   function openDeleteConfirm(event: MouseEvent) {

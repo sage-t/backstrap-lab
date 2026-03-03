@@ -156,8 +156,8 @@ export function scaleIngredients(params: {
       displayAmount: amount,
       displayUnit: unit,
       warning,
-      sourceAmountGrams: scaledGrams,
-      sourceAmountMl: scaledMl
+      sourceAmountGrams: asGrams,
+      sourceAmountMl: asMl
     };
   });
 }

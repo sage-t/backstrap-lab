@@ -2,6 +2,7 @@
   import type { MeasurementPreferences } from '$lib/measurement';
   import {
     formatIngredientAmount,
+    formatVolumeFromMl,
     formatWeightFromGrams
   } from '$lib/measurement';
   import type { DisplayUnit, ScaledIngredient } from '$lib/scaling';
@@ -62,7 +63,16 @@
   const meatDisplay = $derived(formatWeightFromGrams(variation.meatGrams, measurementPrefs));
   const baseMeatDisplay = $derived(formatWeightFromGrams(variation.baseMeatGrams, measurementPrefs));
   const copyText = $derived.by(() => {
-    const lines = scaled.map((row) => `- ${row.ingredientName}: ${formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs)}`);
+    const lines = scaled.map((row) => {
+      const useKitchenVolume =
+        measurementPrefs.volumePreference === 'kitchen_us' &&
+        row.displayUnit === 'g' &&
+        row.sourceAmountMl !== null;
+      const text = useKitchenVolume
+        ? formatVolumeFromMl(row.sourceAmountMl ?? 0, measurementPrefs)
+        : formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs);
+      return `- ${row.ingredientName}: ${text}`;
+    });
     return `${variation.recipeTitle} variation (#${variation.id})\\nMeat: ${meatDisplay} (x${scaleFactor} of base)\\n\\n${lines.join('\\n')}`;
   });
 
@@ -144,7 +154,13 @@
           <label>
             <input type="checkbox" />
             <span class="name">{row.ingredientName}</span>
-            <span class="amount">{formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs)}</span>
+            <span class="amount">
+              {#if measurementPrefs.volumePreference === 'kitchen_us' && row.displayUnit === 'g' && row.sourceAmountMl !== null}
+                {formatVolumeFromMl(row.sourceAmountMl, measurementPrefs)}
+              {:else}
+                {formatIngredientAmount(row.displayAmount, row.displayUnit, measurementPrefs)}
+              {/if}
+            </span>
             {#if row.warning}
               <Badge tone="warning">{row.warning}</Badge>
             {/if}
