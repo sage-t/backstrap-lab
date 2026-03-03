@@ -23,7 +23,12 @@ export function enhanceForm(node: HTMLFormElement, options: EnhanceFormOptions =
 
       if (result.type === 'success') {
         await update({ reset: current.resetOnSuccess ?? false, invalidateAll: true });
-        const dataMessage = (result.data as { message?: string } | undefined)?.message;
+        const data = (result.data as { message?: string; success?: boolean } | undefined) ?? undefined;
+        const dataMessage = data?.message;
+        if (data?.success === false) {
+          toasts.push(dataMessage || current.errorMessage || 'Request failed', 'error');
+          return;
+        }
         if (current.successMessage || dataMessage) {
           toasts.push(current.successMessage || dataMessage || 'Saved', 'success');
         }
@@ -37,7 +42,7 @@ export function enhanceForm(node: HTMLFormElement, options: EnhanceFormOptions =
         return;
       }
 
-      toasts.push(current.errorMessage || result.error?.message || 'Request failed', 'error');
+      toasts.push(result.error?.message || current.errorMessage || 'Request failed', 'error');
     };
   });
 

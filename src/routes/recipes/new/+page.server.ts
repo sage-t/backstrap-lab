@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { addRecipeCut, createRecipe, ensureIngredient, upsertRecipeIngredient } from '$lib/server/db';
 import { importRecipeFromText } from '$lib/server/recipe-import';
-import { requireUserId } from '$lib/server/auth';
+import { normalizeUserId, requireUserId } from '$lib/server/auth';
 
 export const load: PageServerLoad = async () => {
   return {
@@ -44,7 +44,13 @@ export const actions: Actions = {
 
   importText: async ({ request, platform, locals }) => {
     if (!platform?.env?.DB) return { success: false, message: 'DB binding missing' };
-    requireUserId(locals);
+    const actorUserId = normalizeUserId(locals.user);
+    if (!actorUserId) {
+      return {
+        success: false,
+        message: 'You must be signed in through Cloudflare Access before importing.'
+      };
+    }
     const apiKey = platform.env.OPENAI_API_KEY;
     if (!apiKey) {
       return { success: false, message: 'OPENAI_API_KEY is missing in environment secrets' };
