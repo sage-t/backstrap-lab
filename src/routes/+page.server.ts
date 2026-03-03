@@ -1,4 +1,5 @@
 import type { Actions, PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
 import { createRecipe, listRecipes } from '$lib/server/db';
 import { requireUserId } from '$lib/server/auth';
 
@@ -23,6 +24,6 @@ export const actions: Actions = {
       baseMeatGrams: 1000,
       baseAnimal: ''
     }, actorUserId);
-    return { success: true, id };
+    throw redirect(303, `/recipes/${id}`);
   }
 };

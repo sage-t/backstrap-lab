@@ -1,71 +1,104 @@
 <script lang="ts">
+  import Button from '$lib/ui/Button.svelte';
+  import { enhanceForm } from '$lib/ui/enhance-form';
+
   let { data, form } = $props();
 </script>
 
 <section class="card stack">
-  <h1>Ingredients</h1>
-  <form method="POST" action="?/create" class="stack">
-    <label>
-      Name
-      <input name="name" required />
-    </label>
-    <label>
-      Default display unit
-      <select name="default_display_unit">
-        <option value="g">g</option>
-        <option value="ml">ml</option>
-        <option value="tsp">tsp</option>
-        <option value="tbsp">tbsp</option>
-      </select>
-    </label>
-    <button class="primary" type="submit">Create ingredient</button>
+  <header class="stack">
+    <h1>Ingredients</h1>
+    <p class="muted">Create ingredient names once, then reuse them across recipes and variation overrides.</p>
+  </header>
+
+  <form method="POST" action="?/create" class="stack create-form" use:enhanceForm={{ successMessage: 'Ingredient created', resetOnSuccess: true }}>
+    <div class="grid-2">
+      <label>
+        Name
+        <input name="name" required placeholder="e.g. juniper berry powder" />
+      </label>
+      <label>
+        Default display unit
+        <select name="default_display_unit">
+          <option value="g">g</option>
+          <option value="ml">ml</option>
+          <option value="tsp">tsp</option>
+          <option value="tbsp">tbsp</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <Button variant="primary" type="submit">Create ingredient</Button>
+    </div>
   </form>
 
-  {#if form?.message}<p class="warning">{form.message}</p>{/if}
+  {#if form?.message}
+    <p class={form.success ? 'muted' : 'warning'}>{form.message}</p>
+  {/if}
 
-  <table>
-    <thead>
-      <tr><th>Name</th><th>Default unit</th><th></th></tr>
-    </thead>
-    <tbody>
-      {#each data.ingredients as ingredient}
-        <tr>
-          <td>{ingredient.name}</td>
-          <td>
-            <form method="POST" action="?/updateUnit" class="inline">
-              <input type="hidden" name="ingredient_id" value={ingredient.id} />
-              <select name="default_display_unit" value={ingredient.default_display_unit}>
-                <option value="g">g</option>
-                <option value="ml">ml</option>
-                <option value="tsp">tsp</option>
-                <option value="tbsp">tbsp</option>
-              </select>
-              <button type="submit">Save</button>
-            </form>
-          </td>
-          <td><a href="/admin/conversions">densities</a></td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
+  {#if data.ingredients.length === 0}
+    <div class="empty-state">
+      <p class="muted">No ingredients yet.</p>
+    </div>
+  {:else}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>Default unit</th><th></th></tr>
+        </thead>
+        <tbody>
+          {#each data.ingredients as ingredient}
+            <tr>
+              <td>{ingredient.name}</td>
+              <td>
+                <form method="POST" action="?/updateUnit" class="inline" use:enhanceForm={{ successMessage: 'Default unit updated' }}>
+                  <input type="hidden" name="ingredient_id" value={ingredient.id} />
+                  <select name="default_display_unit">
+                    <option value="g" selected={ingredient.default_display_unit === 'g'}>g</option>
+                    <option value="ml" selected={ingredient.default_display_unit === 'ml'}>ml</option>
+                    <option value="tsp" selected={ingredient.default_display_unit === 'tsp'}>tsp</option>
+                    <option value="tbsp" selected={ingredient.default_display_unit === 'tbsp'}>tbsp</option>
+                  </select>
+                  <Button size="sm" type="submit">Save</Button>
+                </form>
+              </td>
+              <td><a href="/admin/conversions" class="muted">edit densities</a></td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
 </section>
 
 <style>
-  table {
-    width: 100%;
-    border-collapse: collapse;
+  .grid-2 {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  th,
-  td {
-    border-bottom: 1px solid var(--line);
-    text-align: left;
-    padding: 0.4rem;
+  .table-wrap {
+    overflow-x: auto;
   }
 
   .inline {
     display: flex;
-    gap: 0.4rem;
     align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .empty-state {
+    padding: var(--space-4);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--panel-soft);
+  }
+
+  @media (max-width: 900px) {
+    .grid-2 {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

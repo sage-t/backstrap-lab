@@ -85,7 +85,7 @@
 
 <section class="card stack">
   <h2>Variation tree</h2>
-  <p class="warning">Branch score is running average of variation ratings along each branch.</p>
+  <p class="muted">Branch score is running average of variation ratings along each branch.</p>
 
   {#if flattened.length === 0}
     <p>No variations yet.</p>
@@ -121,10 +121,11 @@
     grid-template-columns: auto auto auto auto auto;
     align-items: center;
     gap: 0.5rem;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.6rem;
     background: #fff;
+    font-size: 0.9rem;
   }
 
   .indent {
@@ -133,7 +134,8 @@
   }
 
   .best {
-    background: var(--accent-soft) !important;
+    background: var(--primary-soft) !important;
+    border-color: var(--primary);
   }
 
   @media (max-width: 900px) {

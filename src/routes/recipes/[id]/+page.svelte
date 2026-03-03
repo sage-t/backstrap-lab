@@ -3,126 +3,177 @@
   import IngredientRatioEditor from '$lib/components/IngredientRatioEditor.svelte';
   import VariationsList from '$lib/components/VariationsList.svelte';
   import VariationTree from '$lib/components/VariationTree.svelte';
+  import Badge from '$lib/ui/Badge.svelte';
+  import Button from '$lib/ui/Button.svelte';
+  import Tabs from '$lib/ui/Tabs.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
+  import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import { enhanceForm } from '$lib/ui/enhance-form';
 
   let { data, form } = $props();
 
-  const confirmDelete = (event: SubmitEvent, message: string) => {
-    if (!confirm(message)) event.preventDefault();
-  };
+  let activeTab = $state('overview');
+  let showVariationModal = $state(false);
+  let showDeleteRecipeDialog = $state(false);
+  let showDeleteCutDialog = $state(false);
+  let deleteRecipeForm = $state<HTMLFormElement | null>(null);
+  let deleteCutForm = $state<HTMLFormElement | null>(null);
+  let deleteCutSubmitter = $state<HTMLButtonElement | null>(null);
+
+  function openDeleteCutDialog(event: MouseEvent) {
+    event.preventDefault();
+    deleteCutSubmitter = event.currentTarget as HTMLButtonElement;
+    deleteCutForm = deleteCutSubmitter.form;
+    showDeleteCutDialog = true;
+  }
 </script>
 
+<header class="workspace-header card">
+  <div class="workspace-title">
+    <h1>{data.recipe.title}</h1>
+    <div class="workspace-meta">
+      <Badge tone="primary">{data.recipe.baseMeatGrams}g base</Badge>
+      {#if data.recipe.baseAnimal}
+        <Badge>{data.recipe.baseAnimal}</Badge>
+      {/if}
+      <Badge>{data.variations.length} variation{data.variations.length === 1 ? '' : 's'}</Badge>
+    </div>
+  </div>
+  <div class="workspace-actions">
+    <Button variant="primary" on:click={() => (showVariationModal = true)}>New Variation</Button>
+    {#if data.canEditRecipe}
+      <Button on:click={() => (activeTab = 'overview')}>Edit</Button>
+    {/if}
+    {#if data.canDeleteRecipe}
+      <Button variant="destructive" on:click={() => (showDeleteRecipeDialog = true)}>Delete</Button>
+    {/if}
+  </div>
+</header>
+
 <section class="card stack">
-  <h1>{data.recipe.title}</h1>
-  {#if data.recipe.description}
-    <p>{data.recipe.description}</p>
+  <Tabs
+    bind:active={activeTab}
+    items={[
+      { id: 'overview', label: 'Overview' },
+      { id: 'ingredients', label: 'Ingredients' },
+      { id: 'variations', label: 'Variations' }
+    ]}
+  />
+
+  {#if activeTab === 'overview'}
+    <div class="stack tab-panel">
+      {#if data.recipe.description}
+        <p>{data.recipe.description}</p>
+      {/if}
+      <p class="muted">Tags: {data.recipe.tags.join(', ') || 'none'}</p>
+      <section class="rating-row">
+        <div>
+          <h3>Community rating</h3>
+          {#if data.rating.count > 0}
+            <p><strong>{data.rating.average?.toFixed(2)}</strong>/5 from {data.rating.count} ratings</p>
+          {:else}
+            <p class="muted">No ratings yet.</p>
+          {/if}
+        </div>
+        {#if data.canRateRecipe}
+          <form method="POST" action="?/rateRecipe" class="rating-form" use:enhanceForm={{ successMessage: 'Rating saved' }}>
+            <label>
+              Your rating
+              <select name="rating" required>
+                <option value="" disabled selected={data.rating.myRating === null}>Pick</option>
+                <option value="1" selected={data.rating.myRating === 1}>1</option>
+                <option value="2" selected={data.rating.myRating === 2}>2</option>
+                <option value="3" selected={data.rating.myRating === 3}>3</option>
+                <option value="4" selected={data.rating.myRating === 4}>4</option>
+                <option value="5" selected={data.rating.myRating === 5}>5</option>
+              </select>
+            </label>
+            <Button type="submit">Save</Button>
+          </form>
+        {/if}
+      </section>
+
+      {#if data.canEditRecipe}
+        <RecipeEditor action="?/updateRecipe" recipe={data.recipe} submitLabel="Save recipe" />
+        <details class="advanced">
+          <summary>Advanced options</summary>
+          <p class="warning">
+            Changing base meat grams auto-scales all recipe ingredient per-base amounts to preserve concentration.
+          </p>
+          <section class="stack">
+            <h3>Cuts</h3>
+            <ul class="inline-list">
+              {#each data.cuts as cut}
+                <li>
+                  <Badge>{cut.cut_name}</Badge>
+                  <form method="POST" action="?/deleteCut" use:enhanceForm={{ successMessage: 'Cut removed' }}>
+                    <input type="hidden" name="cut_id" value={cut.id} />
+                    <Button size="sm" type="submit" on:click={openDeleteCutDialog}>Remove</Button>
+                  </form>
+                </li>
+              {/each}
+            </ul>
+            <form method="POST" action="?/addCut" class="cut-form" use:enhanceForm={{ successMessage: 'Cut added', resetOnSuccess: true }}>
+              <input name="cut_name" required placeholder="e.g. loin, backstrap" />
+              <Button type="submit">Add Cut</Button>
+            </form>
+          </section>
+        </details>
+
+        <form bind:this={deleteRecipeForm} method="POST" action="?/deleteRecipe" class="hidden-delete"></form>
+      {:else}
+        <section class="stack">
+          <h3>Cuts</h3>
+          <p>{data.cuts.map((cut) => cut.cut_name).join(', ') || 'none'}</p>
+        </section>
+      {/if}
+    </div>
   {/if}
-  <p>
-    Base meat: <strong>{data.recipe.baseMeatGrams}g</strong>
-    {#if data.recipe.baseAnimal}
-      ({data.recipe.baseAnimal})
-    {/if}
-  </p>
-  <p>Tags: {data.recipe.tags.join(', ') || 'none'}</p>
-  <p>
-    Community rating:
-    {#if data.rating.count > 0}
-      <strong>{data.rating.average?.toFixed(2)}</strong>/5 from {data.rating.count} ratings
-    {:else}
-      no ratings yet
-    {/if}
-  </p>
-  {#if data.canRateRecipe}
-    <form method="POST" action="?/rateRecipe" class="rating-form">
-      <label>
-        Your rating
-        <select name="rating" required>
-          <option value="" disabled selected={data.rating.myRating === null}>Pick</option>
-          <option value="1" selected={data.rating.myRating === 1}>1</option>
-          <option value="2" selected={data.rating.myRating === 2}>2</option>
-          <option value="3" selected={data.rating.myRating === 3}>3</option>
-          <option value="4" selected={data.rating.myRating === 4}>4</option>
-          <option value="5" selected={data.rating.myRating === 5}>5</option>
-        </select>
-      </label>
-      <button type="submit">Save rating</button>
-    </form>
+
+  {#if activeTab === 'ingredients'}
+    <div class="stack tab-panel">
+      {#if data.canEditRecipe}
+        <IngredientRatioEditor
+          ingredients={data.ingredientCatalog}
+          recipeId={data.recipe.id}
+          recipeIngredients={data.recipeIngredients}
+          recipeBaseMeatGrams={data.recipe.baseMeatGrams}
+        />
+      {:else}
+        <section class="stack">
+          <h3>Ingredient ratios</h3>
+          <ul class="plain-list">
+            {#each data.recipeIngredients as ingredient}
+              <li>
+                {ingredient.name}:
+                {#if ingredient.amount_grams_per_base !== null}
+                  {ingredient.amount_grams_per_base} g/base
+                {:else}
+                  {ingredient.amount_ml_per_base} ml/base
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+    </div>
+  {/if}
+
+  {#if activeTab === 'variations'}
+    <div class="stack tab-panel">
+      <VariationsList variations={data.variations} allowDelete={data.canDeleteRecipe} />
+      <VariationTree variations={data.variations} />
+    </div>
   {/if}
 </section>
 
-{#if form?.message}
-  <section class="card stack">
-    <p class={form.success ? '' : 'warning'}>{form.message}</p>
-  </section>
-{/if}
-
-{#if data.canEditRecipe}
-  <RecipeEditor action="?/updateRecipe" recipe={data.recipe} submitLabel="Save recipe" />
-
-  <section class="card stack">
-    <p class="warning">
-      Changing base meat grams auto-scales all recipe ingredient per-base amounts to preserve concentration.
-    </p>
-    <form
-      method="POST"
-      action="?/deleteRecipe"
-      onsubmit={(event) => confirmDelete(event, 'Delete this recipe and all its variations?')}
-    >
-      <button type="submit">Delete recipe</button>
-    </form>
-  </section>
-
-  <section class="card stack">
-    <h2>Cuts</h2>
-    <ul>
-      {#each data.cuts as cut}
-        <li>
-          {cut.cut_name}
-          <form
-            method="POST"
-            action="?/deleteCut"
-            style="display:inline"
-            onsubmit={(event) => confirmDelete(event, 'Delete this cut?')}
-          >
-            <input type="hidden" name="cut_id" value={cut.id} />
-            <button type="submit">remove</button>
-          </form>
-        </li>
-      {/each}
-    </ul>
-    <form method="POST" action="?/addCut" class="stack">
-      <input name="cut_name" required placeholder="loin, backstrap" />
-      <button type="submit">Add cut</button>
-    </form>
-  </section>
-
-  <IngredientRatioEditor
-    ingredients={data.ingredientCatalog}
-    recipeId={data.recipe.id}
-    recipeIngredients={data.recipeIngredients}
-  />
-{:else}
-  <section class="card stack">
-    <h2>Cuts</h2>
-    <p>{data.cuts.map((cut) => cut.cut_name).join(', ') || 'none'}</p>
-    <h2>Ingredient ratios</h2>
-    <ul>
-      {#each data.recipeIngredients as ingredient}
-        <li>
-          {ingredient.name}:
-          {#if ingredient.amount_grams_per_base !== null}
-            {ingredient.amount_grams_per_base} g/base
-          {:else}
-            {ingredient.amount_ml_per_base} ml/base
-          {/if}
-        </li>
-      {/each}
-    </ul>
-  </section>
-{/if}
-
-<section class="card stack">
-  <h2>New variation</h2>
-  <form method="POST" action="?/createVariation" class="stack">
+<Modal bind:open={showVariationModal} title="Create variation">
+  <form
+    method="POST"
+    action="?/createVariation"
+    class="stack"
+    use:enhanceForm={{ successMessage: 'Variation created' }}
+  >
     <label>
       Cooked at
       <input type="date" name="cooked_at" value={data.today} required />
@@ -140,28 +191,155 @@
       <select name="parent_variation_id">
         <option value="">None (new root)</option>
         {#each data.variations as variation}
-          <option value={variation.id}>
-            #{variation.id} {variation.cooked_at.slice(0, 10)} (rating {variation.rating ?? '-'})
-          </option>
+          <option value={variation.id}>#{variation.id} {variation.cooked_at.slice(0, 10)}</option>
         {/each}
       </select>
     </label>
     <label>
-      Variation rating (optional 1-5)
+      Initial rating (optional 1-5)
       <input type="number" min="1" max="5" name="rating" />
     </label>
-    <button class="primary" type="submit">Create variation</button>
+    <div class="modal-actions">
+      <Button on:click={() => (showVariationModal = false)}>Cancel</Button>
+      <Button variant="primary" type="submit">Create variation</Button>
+    </div>
   </form>
-</section>
+</Modal>
 
-<VariationsList variations={data.variations} allowDelete={data.canDeleteRecipe} />
-<VariationTree variations={data.variations} />
+<ConfirmDialog
+  bind:open={showDeleteRecipeDialog}
+  title="Delete recipe?"
+  message="This removes the recipe, all revisions, and all variations. This cannot be undone."
+  confirmLabel="Delete recipe"
+  danger={true}
+  onConfirm={() => deleteRecipeForm?.requestSubmit()}
+/>
+
+<ConfirmDialog
+  bind:open={showDeleteCutDialog}
+  title="Delete cut?"
+  message="This cut will be removed from the recipe."
+  confirmLabel="Delete cut"
+  danger={true}
+  onConfirm={() => {
+    if (deleteCutForm && deleteCutSubmitter) deleteCutForm.requestSubmit(deleteCutSubmitter);
+  }}
+/>
+
+{#if form?.message}
+  <section class="card stack">
+    <p class={form.success ? 'muted' : 'warning'}>{form.message}</p>
+  </section>
+{/if}
 
 <style>
+  .workspace-header {
+    position: sticky;
+    top: var(--space-3);
+    z-index: 20;
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    justify-content: space-between;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(5px);
+  }
+
+  .workspace-title {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .workspace-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .workspace-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    justify-content: flex-end;
+  }
+
+  .tab-panel {
+    padding-top: var(--space-2);
+  }
+
+  .rating-row {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+
   .rating-form {
     display: flex;
-    gap: 0.5rem;
+    align-items: end;
+    gap: var(--space-2);
+  }
+
+  .advanced {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    background: var(--panel-soft);
+  }
+
+  .advanced summary {
+    cursor: pointer;
+    font-weight: 700;
+    margin-bottom: var(--space-3);
+  }
+
+  .cut-form {
+    display: flex;
+    gap: var(--space-2);
     align-items: end;
     flex-wrap: wrap;
+  }
+
+  .cut-form input {
+    flex: 1 1 220px;
+  }
+
+  .inline-list {
+    display: grid;
+    gap: var(--space-2);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .inline-list li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .plain-list {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
+  .hidden-delete {
+    display: none;
+  }
+
+  @media (max-width: 900px) {
+    .workspace-header {
+      position: static;
+    }
   }
 </style>
