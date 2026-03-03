@@ -328,6 +328,9 @@ function mergeImportedIngredients(
   aiIngredients: ImportedIngredient[],
   detectedIngredients: ImportedIngredient[]
 ): ImportedIngredient[] {
+  if (detectedIngredients.length === 0) return aiIngredients;
+  if (aiIngredients.length === 0) return detectedIngredients;
+
   const detectedByKey = new Map<string, ImportedIngredient>();
   const detectedKeys: string[] = [];
   for (const item of detectedIngredients) {
@@ -339,50 +342,39 @@ function mergeImportedIngredients(
     }
   }
 
-  const merged: ImportedIngredient[] = [];
+  const merged: ImportedIngredient[] = [...detectedIngredients];
   const seen = new Set<string>();
-  const usedDetected = new Set<string>();
+  for (const item of detectedIngredients) {
+    const key = normalizeIngredientKey(item.name);
+    if (key) seen.add(key);
+  }
 
   for (const ai of aiIngredients) {
     const key = normalizeIngredientKey(ai.name);
     if (!key || seen.has(key)) continue;
 
-    const detectedKey = findBestDetectedKey(key, detectedKeys, usedDetected);
+    const detectedKey = findBestDetectedKey(key, detectedKeys);
     const detected = detectedKey ? detectedByKey.get(detectedKey) : undefined;
     if (detected) {
-      merged.push({
-        name: ai.name || detected.name,
-        amount_per_base: detected.amount_per_base,
-        unit: detected.unit,
-        display_unit: detected.display_unit ?? ai.display_unit
-      });
-      usedDetected.add(detectedKey!);
-    } else {
-      merged.push(ai);
+      // Deterministic parsed text amounts are authoritative when names match.
+      seen.add(detectedKey!);
+      continue;
     }
+
+    merged.push(ai);
     seen.add(key);
   }
-
-  for (const detected of detectedIngredients) {
-    const key = normalizeIngredientKey(detected.name);
-    if (!key || seen.has(key) || usedDetected.has(key)) continue;
-    merged.push(detected);
-    seen.add(key);
-  }
-
-  if (merged.length > 0) return merged;
-  return detectedIngredients.length > 0 ? detectedIngredients : aiIngredients;
+  return merged;
 }
 
-function findBestDetectedKey(aiKey: string, detectedKeys: string[], usedDetected: Set<string>): string | null {
+function findBestDetectedKey(aiKey: string, detectedKeys: string[]): string | null {
   if (!aiKey) return null;
-  if (detectedKeys.includes(aiKey) && !usedDetected.has(aiKey)) return aiKey;
+  if (detectedKeys.includes(aiKey)) return aiKey;
 
   const aiTokens = new Set(aiKey.split(' ').filter(Boolean));
   let best: { key: string; score: number } | null = null;
 
   for (const detectedKey of detectedKeys) {
-    if (usedDetected.has(detectedKey)) continue;
     if (detectedKey.includes(aiKey) || aiKey.includes(detectedKey)) {
       const score = Math.min(aiKey.length, detectedKey.length) / Math.max(aiKey.length, detectedKey.length);
       if (!best || score > best.score) best = { key: detectedKey, score };
@@ -564,7 +556,7 @@ function detectIngredientsFromText(lines: string[]): ImportedIngredient[] {
 
     const name = extractIngredientName(line);
     if (!name) continue;
-    const key = name.toLowerCase();
+    const key = normalizeIngredientKey(name);
     if (seen.has(key)) continue;
     seen.add(key);
 
