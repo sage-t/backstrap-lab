@@ -4,6 +4,13 @@ import type { DisplayUnit } from '$lib/scaling';
 import { requireUserId } from '$lib/server/auth';
 
 const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
+type DisplayUnitInput = DisplayUnit | 'lb' | 'oz';
+
+function parseDisplayUnitInput(value: string): DisplayUnit {
+  const unit = value.trim().toLowerCase() as DisplayUnitInput;
+  if (unit === 'lb' || unit === 'oz') return 'g';
+  return isDisplayUnit(unit) ? unit : 'g';
+}
 
 export const load: PageServerLoad = async ({ platform }) => {
   return {
@@ -19,7 +26,7 @@ export const actions: Actions = {
     const name = String(form.get('name') ?? '').trim();
     if (!name) return { success: false, message: 'Name required' };
     const unitRaw = String(form.get('default_display_unit') ?? 'g');
-    await ensureIngredient(platform.env.DB, name, isDisplayUnit(unitRaw) ? unitRaw : 'g', actorUserId);
+    await ensureIngredient(platform.env.DB, name, parseDisplayUnitInput(unitRaw), actorUserId);
     return { success: true };
   },
   updateUnit: async ({ request, platform, locals }) => {
@@ -27,8 +34,11 @@ export const actions: Actions = {
     requireUserId(locals);
     const form = await request.formData();
     const unitRaw = String(form.get('default_display_unit') ?? 'g');
-    if (!isDisplayUnit(unitRaw)) return { success: false };
-    await updateIngredientDisplayUnit(platform.env.DB, Number(form.get('ingredient_id')), unitRaw);
+    await updateIngredientDisplayUnit(
+      platform.env.DB,
+      Number(form.get('ingredient_id')),
+      parseDisplayUnitInput(unitRaw)
+    );
     return { success: true };
   }
 };

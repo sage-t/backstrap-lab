@@ -17,6 +17,13 @@ import { scaleIngredients, type DisplayUnit } from '$lib/scaling';
 import { normalizeUserId, requireUserId } from '$lib/server/auth';
 
 const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
+type DisplayUnitInput = DisplayUnit | 'lb' | 'oz';
+
+function parseDisplayUnitInput(value: string): DisplayUnit {
+  const unit = value.trim().toLowerCase() as DisplayUnitInput;
+  if (unit === 'lb' || unit === 'oz') return 'g';
+  return isDisplayUnit(unit) ? unit : 'g';
+}
 
 export const load: PageServerLoad = async ({ params, platform, locals }) => {
   if (!platform?.env?.DB) throw error(500, 'DB binding missing');
@@ -94,7 +101,7 @@ export const actions: Actions = {
       ingredientId = await ensureIngredient(
         platform.env.DB,
         newName,
-        isDisplayUnit(unitRaw) ? unitRaw : 'g',
+        parseDisplayUnitInput(unitRaw),
         actorUserId
       );
     }

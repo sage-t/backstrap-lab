@@ -21,6 +21,8 @@
         Default display unit
         <select name="default_display_unit">
           <option value="g">g</option>
+          <option value="lb">lb (stored as g)</option>
+          <option value="oz">oz (stored as g)</option>
           <option value="ml">ml</option>
           <option value="tsp">tsp</option>
           <option value="tbsp">tbsp</option>
@@ -55,6 +57,8 @@
                   <input type="hidden" name="ingredient_id" value={ingredient.id} />
                   <select name="default_display_unit">
                     <option value="g" selected={ingredient.default_display_unit === 'g'}>g</option>
+                    <option value="lb">lb (stored as g)</option>
+                    <option value="oz">oz (stored as g)</option>
                     <option value="ml" selected={ingredient.default_display_unit === 'ml'}>ml</option>
                     <option value="tsp" selected={ingredient.default_display_unit === 'tsp'}>tsp</option>
                     <option value="tbsp" selected={ingredient.default_display_unit === 'tbsp'}>tbsp</option>

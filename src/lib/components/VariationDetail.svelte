@@ -353,6 +353,8 @@
             New ingredient unit
             <select name="new_ingredient_unit">
               <option value="g">g</option>
+              <option value="lb">lb (stored as g)</option>
+              <option value="oz">oz (stored as g)</option>
               <option value="ml">ml</option>
               <option value="tsp">tsp</option>
               <option value="tbsp">tbsp</option>

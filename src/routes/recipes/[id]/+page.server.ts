@@ -18,6 +18,7 @@ import type { DisplayUnit } from '$lib/scaling';
 import { normalizeUserId, requireUserId } from '$lib/server/auth';
 
 const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
+type DisplayUnitInput = DisplayUnit | 'lb' | 'oz';
 type RatioType = 'g' | 'ml';
 type AmountInputUnit = 'g' | 'lb' | 'oz' | 'ml' | 'tsp' | 'tbsp';
 
@@ -25,6 +26,12 @@ const GRAMS_PER_LB = 453.59237;
 const GRAMS_PER_OZ = 28.349523125;
 const ML_PER_TSP = 4.92892;
 const ML_PER_TBSP = ML_PER_TSP * 3;
+
+function parseDisplayUnitInput(value: string): DisplayUnit {
+  const unit = value.trim().toLowerCase() as DisplayUnitInput;
+  if (unit === 'lb' || unit === 'oz') return 'g';
+  return isDisplayUnit(unit) ? unit : 'g';
+}
 
 function parseRatioAmounts(
   ratioType: string,
@@ -128,7 +135,7 @@ export const actions: Actions = {
       ingredientId = await ensureIngredient(
         platform.env.DB,
         newName,
-        isDisplayUnit(unitRaw) ? unitRaw : 'g',
+        parseDisplayUnitInput(unitRaw),
         actorUserId
       );
     }
