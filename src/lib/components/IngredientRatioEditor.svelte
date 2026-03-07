@@ -108,6 +108,11 @@
     <p class="muted">
       Use grams/ml per base. Quick preview below shows what the blend becomes at different meat weights.
     </p>
+    <aside class="field-guide">
+      <p><strong>Field guide:</strong> `Ratio type` is how the ratio is stored, `Amount unit` is just how you type it in.</p>
+      <p><strong>Display unit override:</strong> changes only how amounts are shown in previews/checklists; it does not change stored ratios.</p>
+      <p><strong>New ingredient default unit:</strong> fallback display unit for future rows when no override is set.</p>
+    </aside>
   </header>
 
   <div class="preview card stack">
@@ -163,6 +168,7 @@
               <option value="g" selected={row.amount_grams_per_base !== null}>grams/base</option>
               <option value="ml" selected={row.amount_grams_per_base === null}>ml/base</option>
             </select>
+            <span class="muted small">Storage basis for this ratio.</span>
           </label>
 
           <label>
@@ -186,6 +192,7 @@
               <option value="tsp">tsp</option>
               <option value="tbsp">tbsp</option>
             </select>
+            <span class="muted small">Input unit only. Converted on save.</span>
           </label>
 
           <label>
@@ -197,6 +204,7 @@
               <option value="tsp" selected={row.display_unit_override === 'tsp'}>tsp</option>
               <option value="tbsp" selected={row.display_unit_override === 'tbsp'}>tbsp</option>
             </select>
+            <span class="muted small">Display preference only.</span>
           </label>
 
           <label>
@@ -279,6 +287,7 @@
           <option value="tsp">tsp</option>
           <option value="tbsp">tbsp</option>
         </select>
+        <span class="muted small">Used when no row-level display override exists.</span>
       </label>
 
       <label>
@@ -287,6 +296,7 @@
           <option value="g">grams/base</option>
           <option value="ml">ml/base</option>
         </select>
+        <span class="muted small">How this new ratio will be stored.</span>
       </label>
 
       <label>
@@ -304,6 +314,7 @@
           <option value="tsp">tsp</option>
           <option value="tbsp">tbsp</option>
         </select>
+        <span class="muted small">Type in whichever unit you have.</span>
       </label>
 
       <label>
@@ -315,6 +326,7 @@
           <option value="tsp">tsp</option>
           <option value="tbsp">tbsp</option>
         </select>
+        <span class="muted small">Optional: change how this row appears in UI.</span>
       </label>
     </div>
 
@@ -347,6 +359,21 @@
   .preview {
     background: linear-gradient(145deg, #fbfffd, #f9fbff);
     border-style: dashed;
+  }
+
+  .field-guide {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel-soft);
+    padding: var(--space-2) var(--space-3);
+    display: grid;
+    gap: 4px;
+  }
+
+  .field-guide p {
+    margin: 0;
+    font-size: 0.83rem;
+    color: var(--muted);
   }
 
   .preview-head {

@@ -291,6 +291,9 @@
     <section class="stack">
       <h3>Ratio overrides</h3>
       <p class="muted">These apply to this variation only.</p>
+      <p class="muted small">
+        `Ratio type` controls stored value; `display unit override` only changes how the value is shown in UI.
+      </p>
       {#if variationIngredients.length === 0}
         <p class="muted">No overrides yet.</p>
       {:else}
