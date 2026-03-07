@@ -323,6 +323,7 @@
             <option value="ml">ml</option>
             <option value="tsp">tsp</option>
             <option value="tbsp">tbsp</option>
+            <option value="unit">unit (stored as g)</option>
           </select>
         </label>
       </div>

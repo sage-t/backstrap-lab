@@ -13,6 +13,7 @@
     formatRatioPerBase,
     formatWeightFromGrams
   } from '$lib/measurement';
+  import { renderMarkdown } from '$lib/markdown';
 
   let { data, form } = $props();
 
@@ -89,7 +90,7 @@
   {#if activeTab === 'overview'}
     <div class="stack tab-panel">
       {#if data.recipe.description}
-        <p>{data.recipe.description}</p>
+        <div class="markdown-body">{@html renderMarkdown(data.recipe.description)}</div>
       {/if}
       <p class="muted">Tags: {data.recipe.tags.join(', ') || 'none'}</p>
       <section class="rating-row">
@@ -303,6 +304,32 @@
 
   .tab-panel {
     padding-top: var(--space-2);
+  }
+
+  .markdown-body {
+    color: var(--text);
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .markdown-body :global(p) {
+    margin: 0;
+  }
+
+  .markdown-body :global(ul),
+  .markdown-body :global(ol) {
+    margin: 0;
+    padding-left: 1.3rem;
+    display: grid;
+    gap: 4px;
+  }
+
+  .markdown-body :global(code) {
+    background: var(--panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0 4px;
+    font-size: 0.88em;
   }
 
   .rating-row {

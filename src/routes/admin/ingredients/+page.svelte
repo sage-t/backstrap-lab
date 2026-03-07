@@ -26,6 +26,7 @@
           <option value="ml">ml</option>
           <option value="tsp">tsp</option>
           <option value="tbsp">tbsp</option>
+          <option value="unit">unit (stored as g)</option>
         </select>
       </label>
     </div>
@@ -62,6 +63,7 @@
                     <option value="ml" selected={ingredient.default_display_unit === 'ml'}>ml</option>
                     <option value="tsp" selected={ingredient.default_display_unit === 'tsp'}>tsp</option>
                     <option value="tbsp" selected={ingredient.default_display_unit === 'tbsp'}>tbsp</option>
+                    <option value="unit">unit (stored as g)</option>
                   </select>
                   <Button size="sm" type="submit">Save</Button>
                 </form>
