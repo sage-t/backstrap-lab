@@ -37,11 +37,15 @@
     measurementPrefs: MeasurementPreferences;
   } = $props();
 
-  let previewMeatGrams = $state(1500);
+  let previewMeatGrams = $state(0);
   let ingredientQuery = $state('');
   let showDeleteDialog = $state(false);
   let deleteTargetForm: HTMLFormElement | null = null;
   let deleteSubmitter: HTMLButtonElement | null = null;
+
+  $effect(() => {
+    previewMeatGrams = recipeBaseMeatGrams;
+  });
 
   const ingredientByName = $derived.by(() => {
     const map = new Map<string, number>();
@@ -173,6 +177,18 @@
           </label>
 
           <label>
+            Amount unit
+            <select name="amount_input_unit">
+              <option value="g" selected={row.amount_grams_per_base !== null}>g</option>
+              <option value="lb">lb</option>
+              <option value="oz">oz</option>
+              <option value="ml" selected={row.amount_grams_per_base === null}>ml</option>
+              <option value="tsp">tsp</option>
+              <option value="tbsp">tbsp</option>
+            </select>
+          </label>
+
+          <label>
             Display unit
             <select name="display_unit_override">
               <option value="" selected={row.display_unit_override === null}>default ({row.default_display_unit})</option>
@@ -277,6 +293,18 @@
       </label>
 
       <label>
+        Amount unit
+        <select name="amount_input_unit">
+          <option value="g">g</option>
+          <option value="lb">lb</option>
+          <option value="oz">oz</option>
+          <option value="ml">ml</option>
+          <option value="tsp">tsp</option>
+          <option value="tbsp">tbsp</option>
+        </select>
+      </label>
+
+      <label>
         Display unit override
         <select name="display_unit_override">
           <option value="">default</option>
@@ -350,7 +378,7 @@
   .ingredient-row {
     display: grid;
     gap: var(--space-2);
-    grid-template-columns: 2fr repeat(4, minmax(90px, 1fr)) auto;
+    grid-template-columns: 2fr repeat(5, minmax(90px, 1fr)) auto;
     align-items: end;
     padding: var(--space-3);
     border: 1px solid var(--border);
@@ -368,7 +396,7 @@
   .grid-4 {
     display: grid;
     gap: var(--space-3);
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .small {

@@ -18,6 +18,40 @@ import type { DisplayUnit } from '$lib/scaling';
 import { normalizeUserId, requireUserId } from '$lib/server/auth';
 
 const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
+type RatioType = 'g' | 'ml';
+type AmountInputUnit = 'g' | 'lb' | 'oz' | 'ml' | 'tsp' | 'tbsp';
+
+const GRAMS_PER_LB = 453.59237;
+const GRAMS_PER_OZ = 28.349523125;
+const ML_PER_TSP = 4.92892;
+const ML_PER_TBSP = ML_PER_TSP * 3;
+
+function parseRatioAmounts(
+  ratioType: string,
+  amount: number,
+  amountUnitRaw: string
+): { amountGramsPerBase: number | null; amountMlPerBase: number | null } {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Amount must be greater than 0');
+  }
+
+  const unit = amountUnitRaw.toLowerCase() as AmountInputUnit;
+  if (ratioType === 'g') {
+    if (unit === 'g') return { amountGramsPerBase: amount, amountMlPerBase: null };
+    if (unit === 'lb') return { amountGramsPerBase: amount * GRAMS_PER_LB, amountMlPerBase: null };
+    if (unit === 'oz') return { amountGramsPerBase: amount * GRAMS_PER_OZ, amountMlPerBase: null };
+    throw new Error('For grams/base ratios, use unit g, lb, or oz');
+  }
+
+  if (ratioType === 'ml') {
+    if (unit === 'ml') return { amountGramsPerBase: null, amountMlPerBase: amount };
+    if (unit === 'tsp') return { amountGramsPerBase: null, amountMlPerBase: amount * ML_PER_TSP };
+    if (unit === 'tbsp') return { amountGramsPerBase: null, amountMlPerBase: amount * ML_PER_TBSP };
+    throw new Error('For ml/base ratios, use unit ml, tsp, or tbsp');
+  }
+
+  throw new Error('Invalid ratio type');
+}
 
 export const load: PageServerLoad = async ({ params, platform, locals }) => {
   if (!platform?.env?.DB) throw error(500, 'DB binding missing');
@@ -83,8 +117,9 @@ export const actions: Actions = {
     const ingredientIdRaw = String(form.get('ingredient_id') ?? '').trim();
     const newName = String(form.get('new_ingredient_name') ?? '').trim();
     const unitRaw = String(form.get('new_ingredient_unit') ?? 'g');
-    const ratioType = String(form.get('ratio_type') ?? 'g');
-    const amount = Number(form.get('amount') ?? 0);
+    const ratioType = String(form.get('ratio_type') ?? 'g') as RatioType;
+    const amount = Number(form.get('amount') ?? NaN);
+    const amountUnit = String(form.get('amount_input_unit') ?? (ratioType === 'ml' ? 'ml' : 'g')).trim();
     const overrideRaw = String(form.get('display_unit_override') ?? '').trim();
 
     let ingredientId = ingredientIdRaw ? Number(ingredientIdRaw) : 0;
@@ -99,12 +134,18 @@ export const actions: Actions = {
     }
 
     const displayUnitOverride = isDisplayUnit(overrideRaw) ? overrideRaw : null;
+    let parsedAmounts: { amountGramsPerBase: number | null; amountMlPerBase: number | null };
+    try {
+      parsedAmounts = parseRatioAmounts(ratioType, amount, amountUnit);
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : 'Invalid amount' };
+    }
 
     await upsertRecipeIngredient(platform.env.DB, {
       recipeId: Number(params.id),
       ingredientId,
-      amountGramsPerBase: ratioType === 'g' ? amount : null,
-      amountMlPerBase: ratioType === 'ml' ? amount : null,
+      amountGramsPerBase: parsedAmounts.amountGramsPerBase,
+      amountMlPerBase: parsedAmounts.amountMlPerBase,
       displayUnitOverride,
       sortOrder: Number(form.get('sort_order') ?? 10)
     }, actorUserId);
@@ -116,16 +157,23 @@ export const actions: Actions = {
     if (!platform?.env?.DB) return { success: false };
     const actorUserId = requireUserId(locals);
     const form = await request.formData();
-    const ratioType = String(form.get('ratio_type') ?? 'g');
-    const amount = Number(form.get('amount') ?? 0);
+    const ratioType = String(form.get('ratio_type') ?? 'g') as RatioType;
+    const amount = Number(form.get('amount') ?? NaN);
+    const amountUnit = String(form.get('amount_input_unit') ?? (ratioType === 'ml' ? 'ml' : 'g')).trim();
     const overrideRaw = String(form.get('display_unit_override') ?? '').trim();
+    let parsedAmounts: { amountGramsPerBase: number | null; amountMlPerBase: number | null };
+    try {
+      parsedAmounts = parseRatioAmounts(ratioType, amount, amountUnit);
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : 'Invalid amount' };
+    }
 
     await upsertRecipeIngredient(platform.env.DB, {
       id: Number(form.get('id')),
       recipeId: Number(params.id),
       ingredientId: Number(form.get('ingredient_id')),
-      amountGramsPerBase: ratioType === 'g' ? amount : null,
-      amountMlPerBase: ratioType === 'ml' ? amount : null,
+      amountGramsPerBase: parsedAmounts.amountGramsPerBase,
+      amountMlPerBase: parsedAmounts.amountMlPerBase,
       displayUnitOverride: isDisplayUnit(overrideRaw) ? overrideRaw : null,
       sortOrder: Number(form.get('sort_order') ?? 10)
     }, actorUserId);
