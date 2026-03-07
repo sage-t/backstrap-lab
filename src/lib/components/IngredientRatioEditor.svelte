@@ -12,6 +12,8 @@
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { enhanceForm } from '$lib/ui/enhance-form';
 
+  const GRAMS_PER_LB = 453.59237;
+
   let {
     ingredients,
     recipeId,
@@ -38,15 +40,25 @@
     measurementPrefs: MeasurementPreferences;
   } = $props();
 
-  let previewMeatGrams = $state(0);
+  let previewMeatInput = $state(0);
   let ingredientQuery = $state('');
   let showIngredientResults = $state(false);
   let showDeleteDialog = $state(false);
   let deleteTargetForm: HTMLFormElement | null = null;
   let deleteSubmitter: HTMLButtonElement | null = null;
+  const useImperialPreviewInput = $derived(measurementPrefs.weightPreference === 'imperial_lb_oz');
+  const previewMeatGrams = $derived.by(() => {
+    const amount = Number(previewMeatInput) || 0;
+    if (useImperialPreviewInput) return Math.max(1, Math.round(amount * GRAMS_PER_LB));
+    return Math.max(1, Math.round(amount));
+  });
 
   $effect(() => {
-    previewMeatGrams = recipeBaseMeatGrams;
+    if (measurementPrefs.weightPreference === 'imperial_lb_oz') {
+      previewMeatInput = Number((recipeBaseMeatGrams / GRAMS_PER_LB).toFixed(2));
+      return;
+    }
+    previewMeatInput = recipeBaseMeatGrams;
   });
 
   const ingredientByName = $derived.by(() => {
@@ -141,8 +153,13 @@
     <div class="preview-head">
       <h3>Scale preview</h3>
       <label>
-        Meat grams
-        <input type="number" min="1" bind:value={previewMeatGrams} />
+        Meat {useImperialPreviewInput ? 'lbs' : 'grams'}
+        <input
+          type="number"
+          min={useImperialPreviewInput ? 0.01 : 1}
+          step={useImperialPreviewInput ? 0.01 : 1}
+          bind:value={previewMeatInput}
+        />
         <span class="muted small">Displayed as {formatWeightFromGrams(previewMeatGrams, measurementPrefs)}</span>
       </label>
     </div>
