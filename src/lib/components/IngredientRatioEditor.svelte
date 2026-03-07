@@ -108,11 +108,12 @@
     <p class="muted">
       Use grams/ml per base. Quick preview below shows what the blend becomes at different meat weights.
     </p>
-    <aside class="field-guide">
-      <p><strong>Field guide:</strong> `Ratio type` is how the ratio is stored, `Amount unit` is just how you type it in.</p>
-      <p><strong>Display unit override:</strong> changes only how amounts are shown in previews/checklists; it does not change stored ratios.</p>
-      <p><strong>New ingredient default unit:</strong> fallback display unit for future rows when no override is set.</p>
-    </aside>
+    <details class="field-guide">
+      <summary>Ingredient Input Help</summary>
+      <p><strong>Ratio type</strong> controls storage (`grams/base` or `ml/base`).</p>
+      <p><strong>Amount unit</strong> is only for entry; values are converted on save.</p>
+      <p><strong>Display unit override</strong> changes UI display only, not stored ratios.</p>
+    </details>
   </header>
 
   <div class="preview card stack">
@@ -168,7 +169,6 @@
               <option value="g" selected={row.amount_grams_per_base !== null}>grams/base</option>
               <option value="ml" selected={row.amount_grams_per_base === null}>ml/base</option>
             </select>
-            <span class="muted small">Storage basis for this ratio.</span>
           </label>
 
           <label>
@@ -192,7 +192,6 @@
               <option value="tsp">tsp</option>
               <option value="tbsp">tbsp</option>
             </select>
-            <span class="muted small">Input unit only. Converted on save.</span>
           </label>
 
           <label>
@@ -204,7 +203,6 @@
               <option value="tsp" selected={row.display_unit_override === 'tsp'}>tsp</option>
               <option value="tbsp" selected={row.display_unit_override === 'tbsp'}>tbsp</option>
             </select>
-            <span class="muted small">Display preference only.</span>
           </label>
 
           <label>
@@ -253,89 +251,100 @@
     <input type="hidden" name="recipe_id" value={recipeId} />
     <h3>Add ingredient</h3>
 
-    <label>
-      Ingredient (type to search existing or create new)
-      <input
-        list="ingredient-options"
-        bind:value={ingredientQuery}
-        placeholder="e.g. kosher salt"
-        required
-      />
-      <datalist id="ingredient-options">
-        {#each ingredients as ingredient}
-          <option value={ingredient.name}></option>
-        {/each}
-      </datalist>
-      {#if matchedIngredientId}
-        <span class="muted small">Will use existing ingredient</span>
-      {:else}
-        <span class="muted small">Will create new ingredient</span>
-      {/if}
-    </label>
+    <section class="add-block stack">
+      <div class="add-block-head">
+        <h4>1. Ingredient</h4>
+        <p class="muted small">Pick an existing ingredient or create a new one.</p>
+      </div>
+      <div class="grid-ingredient">
+        <label>
+          Ingredient name
+          <input
+            list="ingredient-options"
+            bind:value={ingredientQuery}
+            placeholder="e.g. kosher salt"
+            required
+          />
+          <datalist id="ingredient-options">
+            {#each ingredients as ingredient}
+              <option value={ingredient.name}></option>
+            {/each}
+          </datalist>
+          {#if matchedIngredientId}
+            <span class="muted small">Using existing ingredient</span>
+          {:else}
+            <span class="muted small">Creating new ingredient</span>
+          {/if}
+        </label>
+
+        <label>
+          New ingredient default unit
+          <select name="new_ingredient_unit">
+            <option value="g">g</option>
+            <option value="lb">lb (stored as g)</option>
+            <option value="oz">oz (stored as g)</option>
+            <option value="ml">ml</option>
+            <option value="tsp">tsp</option>
+            <option value="tbsp">tbsp</option>
+          </select>
+        </label>
+      </div>
+    </section>
 
     <input type="hidden" name="ingredient_id" value={matchedIngredientId || ''} />
     <input type="hidden" name="new_ingredient_name" value={matchedIngredientId ? '' : ingredientQuery} />
 
-    <div class="grid-4">
-      <label>
-        New ingredient default unit
-        <select name="new_ingredient_unit">
-          <option value="g">g</option>
-          <option value="lb">lb (stored as g)</option>
-          <option value="oz">oz (stored as g)</option>
-          <option value="ml">ml</option>
-          <option value="tsp">tsp</option>
-          <option value="tbsp">tbsp</option>
-        </select>
-        <span class="muted small">Used when no row-level display override exists.</span>
-      </label>
+    <section class="add-block stack">
+      <div class="add-block-head">
+        <h4>2. Ratio setup</h4>
+        <p class="muted small">Amount is saved per recipe base meat amount.</p>
+      </div>
+      <div class="grid-ratio">
+        <label>
+          Ratio type
+          <select name="ratio_type">
+            <option value="g">grams/base</option>
+            <option value="ml">ml/base</option>
+          </select>
+        </label>
 
-      <label>
-        Ratio type
-        <select name="ratio_type">
-          <option value="g">grams/base</option>
-          <option value="ml">ml/base</option>
-        </select>
-        <span class="muted small">How this new ratio will be stored.</span>
-      </label>
+        <label>
+          Amount per base
+          <input name="amount" type="number" step="0.01" required />
+        </label>
 
-      <label>
-        Amount per base
-        <input name="amount" type="number" step="0.01" required />
-      </label>
+        <label>
+          Amount unit
+          <select name="amount_input_unit">
+            <option value="g">g</option>
+            <option value="lb">lb</option>
+            <option value="oz">oz</option>
+            <option value="ml">ml</option>
+            <option value="tsp">tsp</option>
+            <option value="tbsp">tbsp</option>
+          </select>
+        </label>
 
-      <label>
-        Amount unit
-        <select name="amount_input_unit">
-          <option value="g">g</option>
-          <option value="lb">lb</option>
-          <option value="oz">oz</option>
-          <option value="ml">ml</option>
-          <option value="tsp">tsp</option>
-          <option value="tbsp">tbsp</option>
-        </select>
-        <span class="muted small">Type in whichever unit you have.</span>
-      </label>
+        <label>
+          Display unit override
+          <select name="display_unit_override">
+            <option value="">default</option>
+            <option value="g">g</option>
+            <option value="ml">ml</option>
+            <option value="tsp">tsp</option>
+            <option value="tbsp">tbsp</option>
+          </select>
+        </label>
+      </div>
+    </section>
 
+    <div class="add-footer">
       <label>
-        Display unit override
-        <select name="display_unit_override">
-          <option value="">default</option>
-          <option value="g">g</option>
-          <option value="ml">ml</option>
-          <option value="tsp">tsp</option>
-          <option value="tbsp">tbsp</option>
-        </select>
-        <span class="muted small">Optional: change how this row appears in UI.</span>
+        Sort order
+        <input name="sort_order" type="number" value={recipeIngredients.length + 1} />
       </label>
+      <Button variant="primary" type="submit">Add ingredient ratio</Button>
     </div>
-
-    <label>
-      Sort order
-      <input name="sort_order" type="number" value={recipeIngredients.length + 1} />
-    </label>
-
-    <Button variant="primary" type="submit">Add ingredient ratio</Button>
   </form>
 </section>
 
@@ -368,6 +377,12 @@
     padding: var(--space-2) var(--space-3);
     display: grid;
     gap: 4px;
+  }
+
+  .field-guide summary {
+    cursor: pointer;
+    font-weight: 650;
+    color: var(--muted);
   }
 
   .field-guide p {
@@ -422,12 +437,6 @@
     flex-wrap: wrap;
   }
 
-  .grid-4 {
-    display: grid;
-    gap: var(--space-3);
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
   .small {
     font-size: 0.79rem;
   }
@@ -435,6 +444,49 @@
   .add-form {
     border-top: 1px solid var(--border);
     padding-top: var(--space-4);
+  }
+
+  .add-block {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, #ffffff, #fbfcfe);
+    padding: var(--space-4);
+    gap: var(--space-3);
+  }
+
+  .add-block-head {
+    display: grid;
+    gap: 2px;
+  }
+
+  .add-block-head h4 {
+    font-size: 0.95rem;
+  }
+
+  .grid-ingredient {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: minmax(260px, 2fr) minmax(220px, 1fr);
+    align-items: end;
+  }
+
+  .grid-ratio {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .add-footer {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .add-footer label {
+    width: min(220px, 100%);
   }
 
   .empty-state {
@@ -453,12 +505,21 @@
   }
 
   @media (max-width: 900px) {
-    .grid-4 {
+    .grid-ingredient,
+    .grid-ratio {
       grid-template-columns: 1fr;
     }
 
     .ingredient-row {
       grid-template-columns: 1fr;
+    }
+
+    .add-footer {
+      align-items: stretch;
+    }
+
+    .add-footer :global(.ui-btn) {
+      width: 100%;
     }
   }
 </style>
