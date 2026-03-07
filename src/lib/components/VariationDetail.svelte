@@ -50,6 +50,7 @@
       ingredientName: string;
       amountGramsPerBase: number | null;
       amountMlPerBase: number | null;
+      amountUnitsPerBase: number | null;
       displayUnitOverride: DisplayUnit | null;
       sort_order: number;
       defaultDisplayUnit: DisplayUnit;
@@ -292,7 +293,7 @@
       <h3>Ratio overrides</h3>
       <p class="muted">These apply to this variation only.</p>
       <p class="muted small">
-        `Ratio type` controls stored value; `display unit override` only changes how the value is shown in UI.
+        `Ratio type` controls stored value (`grams/base`, `ml/base`, or `units/base`); `display unit override` only changes how the value is shown in UI.
       </p>
       {#if variationIngredients.length === 0}
         <p class="muted">No overrides yet.</p>
@@ -307,21 +308,23 @@
             </select>
             <select name="ratio_type">
               <option value="g" selected={row.amountGramsPerBase !== null}>grams/base</option>
-              <option value="ml" selected={row.amountGramsPerBase === null}>ml/base</option>
+              <option value="ml" selected={row.amountGramsPerBase === null && row.amountUnitsPerBase === null}>ml/base</option>
+              <option value="unit" selected={row.amountUnitsPerBase !== null}>units/base</option>
             </select>
             <input
               name="amount"
               type="number"
               step="0.01"
               required
-              value={row.amountGramsPerBase ?? row.amountMlPerBase ?? ''}
+              value={row.amountGramsPerBase ?? row.amountMlPerBase ?? row.amountUnitsPerBase ?? ''}
             />
             <select name="display_unit_override">
-              <option value="" selected={row.displayUnitOverride === null}>default ({row.defaultDisplayUnit})</option>
+              <option value="" selected={row.displayUnitOverride === null}>default ({row.amountUnitsPerBase !== null ? 'unit' : row.defaultDisplayUnit})</option>
               <option value="g" selected={row.displayUnitOverride === 'g'}>g</option>
               <option value="ml" selected={row.displayUnitOverride === 'ml'}>ml</option>
               <option value="tsp" selected={row.displayUnitOverride === 'tsp'}>tsp</option>
               <option value="tbsp" selected={row.displayUnitOverride === 'tbsp'}>tbsp</option>
+              <option value="unit" selected={row.displayUnitOverride === 'unit'}>unit</option>
             </select>
             <input name="sort_order" type="number" value={row.sort_order} />
             <Button size="sm" type="submit">Save</Button>
@@ -372,6 +375,7 @@
           <select name="ratio_type">
             <option value="g">grams/base</option>
             <option value="ml">ml/base</option>
+            <option value="unit">units/base</option>
           </select>
           <input name="amount" type="number" step="0.01" required placeholder="Amount per base" />
           <select name="display_unit_override">
@@ -380,6 +384,7 @@
             <option value="ml">ml</option>
             <option value="tsp">tsp</option>
             <option value="tbsp">tbsp</option>
+            <option value="unit">unit</option>
           </select>
         </div>
         <Button type="submit">Add override</Button>

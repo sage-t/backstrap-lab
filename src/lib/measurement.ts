@@ -119,6 +119,13 @@ function volumeToMl(amount: number, unit: 'ml' | 'tsp' | 'tbsp'): number {
   return amount * ML_PER_TSP * TSP_PER_TBSP;
 }
 
+function formatUnitAmount(units: number): string {
+  const rounded = roundTo(units, 0.25);
+  const normalized = Number(rounded.toFixed(2));
+  if (Math.abs(normalized - 1) < 1e-9) return '1 unit';
+  return `${formatNumber(normalized, 2)} units`;
+}
+
 export function isWeightPreference(value: unknown): value is WeightPreference {
   return value === 'metric_g' || value === 'imperial_lb_oz';
 }
@@ -160,15 +167,18 @@ export function formatIngredientAmount(
   prefs: MeasurementPreferences
 ): string {
   if (unit === 'g') return formatWeightFromGrams(amount, prefs);
+  if (unit === 'unit') return formatUnitAmount(amount);
   return formatVolumeFromMl(volumeToMl(amount, unit), prefs);
 }
 
 export function formatRatioPerBase(
   amountGramsPerBase: number | null,
   amountMlPerBase: number | null,
+  amountUnitsPerBase: number | null,
   prefs: MeasurementPreferences
 ): string {
   if (amountGramsPerBase !== null) return `${formatWeightFromGrams(amountGramsPerBase, prefs)}/base`;
   if (amountMlPerBase !== null) return `${formatVolumeFromMl(amountMlPerBase, prefs)}/base`;
+  if (amountUnitsPerBase !== null) return `${formatUnitAmount(amountUnitsPerBase)}/base`;
   return '-';
 }

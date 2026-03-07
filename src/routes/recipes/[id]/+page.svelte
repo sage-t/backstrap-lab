@@ -174,6 +174,7 @@
                 {formatRatioPerBase(
                   ingredient.amount_grams_per_base,
                   ingredient.amount_ml_per_base,
+                  ingredient.amount_units_per_base,
                   data.measurementPrefs
                 )}
               </li>

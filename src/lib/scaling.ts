@@ -1,10 +1,11 @@
-export type DisplayUnit = 'g' | 'ml' | 'tsp' | 'tbsp';
+export type DisplayUnit = 'g' | 'ml' | 'tsp' | 'tbsp' | 'unit';
 
 export type ScaleInputRow = {
   ingredientId: number;
   ingredientName: string;
   amountGramsPerBase: number | null;
   amountMlPerBase: number | null;
+  amountUnitsPerBase: number | null;
   defaultDisplayUnit: DisplayUnit;
   displayUnitOverride: DisplayUnit | null;
   gramsPerMl: number | null;
@@ -20,6 +21,7 @@ export type ScaledIngredient = {
   warning: string | null;
   sourceAmountGrams: number | null;
   sourceAmountMl: number | null;
+  sourceAmountUnits: number | null;
 };
 
 const ML_PER_TSP = 4.92892;
@@ -143,6 +145,10 @@ export function roundTbsp(value: number): number {
   return roundNearest(value, 0.25);
 }
 
+export function roundUnits(value: number): number {
+  return roundNearest(value, 0.25);
+}
+
 export function scaleIngredients(params: {
   baseMeatGrams: number;
   targetMeatGrams: number;
@@ -153,29 +159,41 @@ export function scaleIngredients(params: {
   return params.rows.map((row) => {
     const scaledGrams = row.amountGramsPerBase !== null ? row.amountGramsPerBase * factor : null;
     const scaledMl = row.amountMlPerBase !== null ? row.amountMlPerBase * factor : null;
-    const displayUnit = row.displayUnitOverride ?? row.defaultDisplayUnit;
+    const scaledUnits = row.amountUnitsPerBase !== null ? row.amountUnitsPerBase * factor : null;
+    const displayUnit =
+      scaledUnits !== null ? (row.displayUnitOverride ?? 'unit') : (row.displayUnitOverride ?? row.defaultDisplayUnit);
 
-    const fromGrams = scaledGrams !== null;
-    const sourceDisplayUnit: DisplayUnit = fromGrams ? 'g' : 'ml';
-    const sourceAmount = fromGrams ? scaledGrams! : scaledMl!;
+    const sourceDisplayUnit: DisplayUnit =
+      scaledGrams !== null ? 'g' : scaledMl !== null ? 'ml' : 'unit';
+    const sourceAmount = scaledGrams ?? scaledMl ?? scaledUnits ?? 0;
 
-    const asMl = fromGrams
-      ? gramsToMl(scaledGrams!, row.gramsPerMl, row.gramsPerTsp, row.ingredientName)
+    const asMl = scaledGrams !== null
+      ? gramsToMl(scaledGrams, row.gramsPerMl, row.gramsPerTsp, row.ingredientName)
       : scaledMl;
 
-    const asGrams = fromGrams
+    const asGrams = scaledGrams !== null
       ? scaledGrams
-      : mlToGrams(scaledMl!, row.gramsPerMl, row.gramsPerTsp, row.ingredientName);
+      : scaledMl !== null
+        ? mlToGrams(scaledMl, row.gramsPerMl, row.gramsPerTsp, row.ingredientName)
+        : null;
 
     let amount: number;
     let unit: DisplayUnit = displayUnit;
     let warning: string | null = null;
 
-    if (displayUnit === 'g') {
+    if (displayUnit === 'unit') {
+      if (scaledUnits === null) {
+        amount = sourceAmount;
+        unit = sourceDisplayUnit;
+        warning = 'unit-only ingredient';
+      } else {
+        amount = roundUnits(scaledUnits);
+      }
+    } else if (displayUnit === 'g') {
       if (asGrams === null) {
         amount = sourceAmount;
         unit = sourceDisplayUnit;
-        warning = 'no density set';
+        warning = scaledUnits !== null ? 'unit-only ingredient' : 'no density set';
       } else {
         amount = roundGrams(asGrams);
       }
@@ -183,7 +201,7 @@ export function scaleIngredients(params: {
       if (asMl === null) {
         amount = sourceAmount;
         unit = sourceDisplayUnit;
-        warning = 'no density set';
+        warning = scaledUnits !== null ? 'unit-only ingredient' : 'no density set';
       } else {
         amount = roundMl(asMl);
       }
@@ -191,7 +209,7 @@ export function scaleIngredients(params: {
       if (asMl === null) {
         amount = sourceAmount;
         unit = sourceDisplayUnit;
-        warning = 'no density set';
+        warning = scaledUnits !== null ? 'unit-only ingredient' : 'no density set';
       } else {
         amount = roundTsp(mlToTsp(asMl));
       }
@@ -199,7 +217,7 @@ export function scaleIngredients(params: {
       if (asMl === null) {
         amount = sourceAmount;
         unit = sourceDisplayUnit;
-        warning = 'no density set';
+        warning = scaledUnits !== null ? 'unit-only ingredient' : 'no density set';
       } else {
         amount = roundTbsp(tspToTbsp(mlToTsp(asMl)));
       }
@@ -213,7 +231,8 @@ export function scaleIngredients(params: {
       displayUnit: unit,
       warning,
       sourceAmountGrams: asGrams,
-      sourceAmountMl: asMl
+      sourceAmountMl: asMl,
+      sourceAmountUnits: scaledUnits
     };
   });
 }

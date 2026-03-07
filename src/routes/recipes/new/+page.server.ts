@@ -94,7 +94,8 @@ export const actions: Actions = {
         name: string;
         amountGramsPerBase: number | null;
         amountMlPerBase: number | null;
-        displayUnitOverride: 'g' | 'ml' | 'tsp' | 'tbsp' | null;
+        amountUnitsPerBase: number | null;
+        displayUnitOverride: 'g' | 'ml' | 'tsp' | 'tbsp' | 'unit' | null;
       }>;
     };
 
@@ -123,16 +124,27 @@ export const actions: Actions = {
       const name = String(row.name ?? '').trim();
       if (!name) continue;
 
-      const ingredientId = await ensureIngredient(platform.env.DB, name, row.displayUnitOverride ?? 'g', actorUserId);
+      const ingredientDefaultUnit =
+        row.displayUnitOverride && row.displayUnitOverride !== 'unit' ? row.displayUnitOverride : 'g';
+      const ingredientId = await ensureIngredient(platform.env.DB, name, ingredientDefaultUnit, actorUserId);
+      const amountGramsPerBase =
+        row.amountGramsPerBase !== null && Number.isFinite(row.amountGramsPerBase)
+          ? row.amountGramsPerBase
+          : null;
+      const amountMlPerBase =
+        row.amountMlPerBase !== null && Number.isFinite(row.amountMlPerBase) ? row.amountMlPerBase : null;
+      const amountUnitsPerBase =
+        row.amountUnitsPerBase !== null && Number.isFinite(row.amountUnitsPerBase)
+          ? row.amountUnitsPerBase
+          : null;
+      if (amountGramsPerBase === null && amountMlPerBase === null && amountUnitsPerBase === null) continue;
+
       await upsertRecipeIngredient(platform.env.DB, {
         recipeId,
         ingredientId,
-        amountGramsPerBase:
-          row.amountGramsPerBase !== null && Number.isFinite(row.amountGramsPerBase)
-            ? row.amountGramsPerBase
-            : null,
-        amountMlPerBase:
-          row.amountMlPerBase !== null && Number.isFinite(row.amountMlPerBase) ? row.amountMlPerBase : null,
+        amountGramsPerBase,
+        amountMlPerBase,
+        amountUnitsPerBase,
         displayUnitOverride: row.displayUnitOverride ?? null,
         sortOrder: index + 1
       }, actorUserId);

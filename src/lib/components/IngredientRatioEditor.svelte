@@ -27,6 +27,7 @@
       name: string;
       amount_grams_per_base: number | null;
       amount_ml_per_base: number | null;
+      amount_units_per_base: number | null;
       display_unit_override: DisplayUnit | null;
       sort_order: number;
       default_display_unit: DisplayUnit;
@@ -70,6 +71,7 @@
         ingredientName: row.name,
         amountGramsPerBase: row.amount_grams_per_base,
         amountMlPerBase: row.amount_ml_per_base,
+        amountUnitsPerBase: row.amount_units_per_base,
         defaultDisplayUnit: row.default_display_unit,
         displayUnitOverride: row.display_unit_override,
         gramsPerMl: row.grams_per_ml,
@@ -130,6 +132,7 @@
       <summary>Ingredient Input Help</summary>
       <p><strong>Ratio type</strong> controls storage (`grams/base` or `ml/base`).</p>
       <p><strong>Amount unit</strong> is only for entry; values are converted on save.</p>
+      <p><strong>units/base</strong> is for count-style items (cloves, pieces) that still scale.</p>
       <p><strong>Display unit override</strong> changes UI display only, not stored ratios.</p>
     </details>
   </header>
@@ -185,7 +188,8 @@
             Ratio type
             <select name="ratio_type">
               <option value="g" selected={row.amount_grams_per_base !== null}>grams/base</option>
-              <option value="ml" selected={row.amount_grams_per_base === null}>ml/base</option>
+              <option value="ml" selected={row.amount_grams_per_base === null && row.amount_units_per_base === null}>ml/base</option>
+              <option value="unit" selected={row.amount_units_per_base !== null}>units/base</option>
             </select>
           </label>
 
@@ -196,7 +200,7 @@
               type="number"
               step="0.01"
               required
-              value={row.amount_grams_per_base ?? row.amount_ml_per_base ?? ''}
+              value={row.amount_grams_per_base ?? row.amount_ml_per_base ?? row.amount_units_per_base ?? ''}
             />
           </label>
 
@@ -206,20 +210,22 @@
               <option value="g" selected={row.amount_grams_per_base !== null}>g</option>
               <option value="lb">lb</option>
               <option value="oz">oz</option>
-              <option value="ml" selected={row.amount_grams_per_base === null}>ml</option>
+              <option value="ml" selected={row.amount_grams_per_base === null && row.amount_units_per_base === null}>ml</option>
               <option value="tsp">tsp</option>
               <option value="tbsp">tbsp</option>
+              <option value="unit" selected={row.amount_units_per_base !== null}>unit</option>
             </select>
           </label>
 
           <label>
             Display unit
             <select name="display_unit_override">
-              <option value="" selected={row.display_unit_override === null}>default ({row.default_display_unit})</option>
+              <option value="" selected={row.display_unit_override === null}>default ({row.amount_units_per_base !== null ? 'unit' : row.default_display_unit})</option>
               <option value="g" selected={row.display_unit_override === 'g'}>g</option>
               <option value="ml" selected={row.display_unit_override === 'ml'}>ml</option>
               <option value="tsp" selected={row.display_unit_override === 'tsp'}>tsp</option>
               <option value="tbsp" selected={row.display_unit_override === 'tbsp'}>tbsp</option>
+              <option value="unit" selected={row.display_unit_override === 'unit'}>unit</option>
             </select>
           </label>
 
@@ -345,6 +351,7 @@
           <select name="ratio_type">
             <option value="g">grams/base</option>
             <option value="ml">ml/base</option>
+            <option value="unit">units/base</option>
           </select>
         </label>
 
@@ -362,6 +369,7 @@
             <option value="ml">ml</option>
             <option value="tsp">tsp</option>
             <option value="tbsp">tbsp</option>
+            <option value="unit">unit</option>
           </select>
         </label>
 
@@ -373,6 +381,7 @@
             <option value="ml">ml</option>
             <option value="tsp">tsp</option>
             <option value="tbsp">tbsp</option>
+            <option value="unit">unit</option>
           </select>
         </label>
       </div>

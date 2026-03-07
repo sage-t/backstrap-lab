@@ -16,12 +16,12 @@ import {
 import { scaleIngredients, type DisplayUnit } from '$lib/scaling';
 import { normalizeUserId, requireUserId } from '$lib/server/auth';
 
-const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
+const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp', 'unit'].includes(value);
 type DisplayUnitInput = DisplayUnit | 'lb' | 'oz';
 
 function parseDisplayUnitInput(value: string): DisplayUnit {
   const unit = value.trim().toLowerCase() as DisplayUnitInput;
-  if (unit === 'lb' || unit === 'oz') return 'g';
+  if (unit === 'lb' || unit === 'oz' || unit === 'unit') return 'g';
   return isDisplayUnit(unit) ? unit : 'g';
 }
 
@@ -94,6 +94,9 @@ export const actions: Actions = {
     const ratioType = String(form.get('ratio_type') ?? 'g');
     const amount = Number(form.get('amount') ?? 0);
     const overrideRaw = String(form.get('display_unit_override') ?? '').trim();
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { success: false, message: 'Amount must be greater than 0' };
+    }
 
     let ingredientId = ingredientIdRaw ? Number(ingredientIdRaw) : 0;
     if (!ingredientId) {
@@ -112,7 +115,11 @@ export const actions: Actions = {
       ingredientId,
       amountGramsPerBase: ratioType === 'g' ? amount : null,
       amountMlPerBase: ratioType === 'ml' ? amount : null,
-      displayUnitOverride: isDisplayUnit(overrideRaw) ? overrideRaw : null,
+      amountUnitsPerBase: ratioType === 'unit' ? amount : null,
+      displayUnitOverride:
+        ratioType === 'unit'
+          ? (isDisplayUnit(overrideRaw) ? overrideRaw : 'unit')
+          : (isDisplayUnit(overrideRaw) ? overrideRaw : null),
       sortOrder: Number(form.get('sort_order') ?? 10)
     }, actorUserId);
     return { success: true };

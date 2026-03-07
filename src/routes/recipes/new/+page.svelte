@@ -76,6 +76,7 @@
                   {formatRatioPerBase(
                     ingredient.amountGramsPerBase,
                     ingredient.amountMlPerBase,
+                    ingredient.amountUnitsPerBase,
                     data.measurementPrefs
                   )}
                 </strong>

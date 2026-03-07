@@ -2,7 +2,7 @@ import type { DisplayUnit } from '$lib/scaling';
 
 const MODEL = 'gpt-4.1-mini';
 
-type ImportUnit = 'g' | 'ml' | 'tsp' | 'tbsp';
+type ImportUnit = 'g' | 'ml' | 'tsp' | 'tbsp' | 'unit';
 
 type ImportedIngredient = {
   name: string;
@@ -37,6 +37,7 @@ export type NormalizedImportedRecipe = {
     name: string;
     amountGramsPerBase: number | null;
     amountMlPerBase: number | null;
+    amountUnitsPerBase: number | null;
     displayUnitOverride: DisplayUnit | null;
   }>;
 };
@@ -79,7 +80,7 @@ export async function importRecipeFromText(params: {
                 'If explicit meat weight is missing but there is a meat description (example: \"1 deer front leg\"), estimate grams as best as possible.',
                 'If neither explicit weight nor a usable meat description exists, set meat_weight_basis to \"missing\" and base_meat_grams to null.',
                 `Pre-detected meat signal: ${detected.baseMeatGrams ? `${detected.baseMeatGrams}g (${detected.note})` : 'none'}. Use this if consistent with the text.`,
-                'Units allowed: g, ml, tsp, tbsp.',
+                'Units allowed: g, ml, tsp, tbsp, unit.',
                 'Return cuts array and ingredients array.',
                 'Recipe text:',
                 params.recipeText
@@ -124,10 +125,10 @@ export async function importRecipeFromText(params: {
                   properties: {
                     name: { type: 'string' },
                     amount_per_base: { type: 'number' },
-                    unit: { type: 'string', enum: ['g', 'ml', 'tsp', 'tbsp'] },
+                    unit: { type: 'string', enum: ['g', 'ml', 'tsp', 'tbsp', 'unit'] },
                     display_unit: {
                       anyOf: [
-                        { type: 'string', enum: ['g', 'ml', 'tsp', 'tbsp'] },
+                        { type: 'string', enum: ['g', 'ml', 'tsp', 'tbsp', 'unit'] },
                         { type: 'null' }
                       ]
                     }
@@ -265,7 +266,18 @@ function normalizeDraft(
           name: item.name,
           amountGramsPerBase: item.amount_per_base,
           amountMlPerBase: null,
+          amountUnitsPerBase: null,
           displayUnitOverride: item.display_unit ?? null
+        };
+      }
+
+      if (item.unit === 'unit') {
+        return {
+          name: item.name,
+          amountGramsPerBase: null,
+          amountMlPerBase: null,
+          amountUnitsPerBase: item.amount_per_base,
+          displayUnitOverride: item.display_unit ?? 'unit'
         };
       }
 
@@ -275,6 +287,7 @@ function normalizeDraft(
         name: item.name,
         amountGramsPerBase: null,
         amountMlPerBase: ml,
+        amountUnitsPerBase: null,
         displayUnitOverride: item.display_unit ?? null
       };
     });
@@ -303,7 +316,7 @@ function clampPositive(value: number, fallback: number | null): number | null {
 }
 
 function isDisplayUnit(value: string): value is DisplayUnit {
-  return value === 'g' || value === 'ml' || value === 'tsp' || value === 'tbsp';
+  return value === 'g' || value === 'ml' || value === 'tsp' || value === 'tbsp' || value === 'unit';
 }
 
 function toWeightBasis(value: unknown): ImportedRecipeDraft['meat_weight_basis'] {
@@ -585,7 +598,7 @@ function extractQuantityUnit(line: string): { value: number; unit: string } | nu
       if (Number.isFinite(value) && value > 0) return { value, unit };
     }
   }
-  const re = /([~≈]?\s*\d+(?:\.\d+)?)\s*(lbs?|pounds?|kg|grams?|g|ml|tbsp|tsp|cups?|cup)\b/g;
+  const re = /([~≈]?\s*\d+(?:\.\d+)?)\s*(lbs?|pounds?|kg|grams?|g|ml|tbsp|tsp|cups?|cup|cloves?|pieces?|units?)\b/g;
   let match: RegExpExecArray | null = null;
 
   let preferred: { value: number; unit: string; score: number } | null = null;
@@ -605,6 +618,8 @@ function extractQuantityUnit(line: string): { value: number; unit: string } | nu
               ? 2
               : unit.startsWith('cup')
                 ? 1
+                : unit.startsWith('clove') || unit.startsWith('piece') || unit.startsWith('unit')
+                  ? 0.5
                 : 0;
     if (!preferred || score > preferred.score) {
       preferred = { value, unit, score };
@@ -624,6 +639,9 @@ function normalizeQuantityToSupportedUnits(
   if (unit === 'tsp') return { amount: value, unit: 'tsp', displayUnit: 'tsp' };
   if (unit === 'cup' || unit === 'cups') return { amount: value * 240, unit: 'ml', displayUnit: 'ml' };
   if (unit === 'kg') return { amount: value * 1000, unit: 'g', displayUnit: 'g' };
+  if (unit === 'unit' || unit === 'units' || unit === 'clove' || unit === 'cloves' || unit === 'piece' || unit === 'pieces') {
+    return { amount: value, unit: 'unit', displayUnit: 'unit' };
+  }
   if (unit === 'lb' || unit === 'lbs' || unit === 'pound' || unit === 'pounds') {
     return { amount: value * 453.59237, unit: 'g', displayUnit: 'g' };
   }
@@ -640,7 +658,7 @@ function extractIngredientName(line: string): string {
   }
 
   return line
-    .replace(/^[~≈]?\s*\d+(?:\.\d+)?\s*(lbs?|pounds?|kg|grams?|g|ml|tbsp|tsp|cups?|cup)\b/i, '')
+    .replace(/^[~≈]?\s*\d+(?:\.\d+)?\s*(lbs?|pounds?|kg|grams?|g|ml|tbsp|tsp|cups?|cup|cloves?|pieces?|units?)\b/i, '')
     .replace(/[()]/g, '')
     .replace(/\s+/g, ' ')
     .trim();

@@ -221,8 +221,8 @@ async function forkCurrentRevision(db: D1Database, recipeId: number, actorUserId
   await exec(
     db,
     `INSERT INTO recipe_revision_ingredients
-      (recipe_revision_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
-     SELECT ?, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order
+      (recipe_revision_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, amount_units_per_base, display_unit_override, sort_order)
+     SELECT ?, ingredient_id, amount_grams_per_base, amount_ml_per_base, amount_units_per_base, display_unit_override, sort_order
      FROM recipe_revision_ingredients
      WHERE recipe_revision_id = ?`,
     newRevisionId,
@@ -312,8 +312,10 @@ export async function updateRecipe(
       `UPDATE recipe_revision_ingredients
        SET
          amount_grams_per_base = CASE WHEN amount_grams_per_base IS NULL THEN NULL ELSE amount_grams_per_base * ? END,
-         amount_ml_per_base = CASE WHEN amount_ml_per_base IS NULL THEN NULL ELSE amount_ml_per_base * ? END
+         amount_ml_per_base = CASE WHEN amount_ml_per_base IS NULL THEN NULL ELSE amount_ml_per_base * ? END,
+         amount_units_per_base = CASE WHEN amount_units_per_base IS NULL THEN NULL ELSE amount_units_per_base * ? END
        WHERE recipe_revision_id = ?`,
+      factor,
       factor,
       factor,
       revisionId
@@ -395,6 +397,7 @@ export async function getRecipeDetail(db: D1Database, recipeId: number, viewerUs
     name: string;
     amount_grams_per_base: number | null;
     amount_ml_per_base: number | null;
+    amount_units_per_base: number | null;
     display_unit_override: DisplayUnit | null;
     sort_order: number;
     default_display_unit: DisplayUnit;
@@ -403,7 +406,7 @@ export async function getRecipeDetail(db: D1Database, recipeId: number, viewerUs
   }>(
     db,
     `SELECT ri.id, ri.ingredient_id, i.name,
-            ri.amount_grams_per_base, ri.amount_ml_per_base,
+            ri.amount_grams_per_base, ri.amount_ml_per_base, ri.amount_units_per_base,
             ri.display_unit_override, ri.sort_order,
             i.default_display_unit,
             ic.grams_per_ml, ic.grams_per_tsp
@@ -570,6 +573,7 @@ export async function upsertRecipeIngredient(db: D1Database, input: {
   ingredientId: number;
   amountGramsPerBase: number | null;
   amountMlPerBase: number | null;
+  amountUnitsPerBase: number | null;
   displayUnitOverride: DisplayUnit | null;
   sortOrder: number;
 }, actorUserId?: string | null) {
@@ -578,12 +582,13 @@ export async function upsertRecipeIngredient(db: D1Database, input: {
     await exec(
       db,
       `UPDATE recipe_revision_ingredients
-       SET ingredient_id = ?, amount_grams_per_base = ?, amount_ml_per_base = ?,
+       SET ingredient_id = ?, amount_grams_per_base = ?, amount_ml_per_base = ?, amount_units_per_base = ?,
            display_unit_override = ?, sort_order = ?
        WHERE id = ? AND recipe_revision_id = ?`,
       input.ingredientId,
       input.amountGramsPerBase,
       input.amountMlPerBase,
+      input.amountUnitsPerBase,
       input.displayUnitOverride,
       input.sortOrder,
       input.id,
@@ -594,13 +599,14 @@ export async function upsertRecipeIngredient(db: D1Database, input: {
 
   await exec(
     db,
-    `INSERT INTO recipe_revision_ingredients (recipe_revision_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
-     SELECT ?, i.id, ?, ?, ?, ?
+    `INSERT INTO recipe_revision_ingredients (recipe_revision_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, amount_units_per_base, display_unit_override, sort_order)
+     SELECT ?, i.id, ?, ?, ?, ?, ?
      FROM ingredients i
      WHERE i.id = ?`,
     revisionId,
     input.amountGramsPerBase,
     input.amountMlPerBase,
+    input.amountUnitsPerBase,
     input.displayUnitOverride,
     input.sortOrder,
     input.ingredientId
@@ -761,6 +767,7 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
             i.name AS ingredientName,
             ri.amount_grams_per_base AS amountGramsPerBase,
             ri.amount_ml_per_base AS amountMlPerBase,
+            ri.amount_units_per_base AS amountUnitsPerBase,
             i.default_display_unit AS defaultDisplayUnit,
             ri.display_unit_override AS displayUnitOverride,
             ic.grams_per_ml AS gramsPerMl,
@@ -784,6 +791,7 @@ export async function getVariationDetail(db: D1Database, variationId: number) {
             i.name AS ingredientName,
             vi.amount_grams_per_base AS amountGramsPerBase,
             vi.amount_ml_per_base AS amountMlPerBase,
+            vi.amount_units_per_base AS amountUnitsPerBase,
             i.default_display_unit AS defaultDisplayUnit,
             vi.display_unit_override AS displayUnitOverride,
             ic.grams_per_ml AS gramsPerMl,
@@ -964,6 +972,7 @@ export async function upsertVariationIngredient(db: D1Database, input: {
   ingredientId: number;
   amountGramsPerBase: number | null;
   amountMlPerBase: number | null;
+  amountUnitsPerBase: number | null;
   displayUnitOverride: DisplayUnit | null;
   sortOrder: number;
 }, actorUserId?: string | null) {
@@ -972,7 +981,7 @@ export async function upsertVariationIngredient(db: D1Database, input: {
     await exec(
       db,
       `UPDATE variation_ingredients
-       SET ingredient_id = ?, amount_grams_per_base = ?, amount_ml_per_base = ?, display_unit_override = ?, sort_order = ?
+       SET ingredient_id = ?, amount_grams_per_base = ?, amount_ml_per_base = ?, amount_units_per_base = ?, display_unit_override = ?, sort_order = ?
        WHERE id = ? AND variation_id = ?
          AND EXISTS (
            SELECT 1 FROM variations v
@@ -985,6 +994,7 @@ export async function upsertVariationIngredient(db: D1Database, input: {
       input.ingredientId,
       input.amountGramsPerBase,
       input.amountMlPerBase,
+      input.amountUnitsPerBase,
       input.displayUnitOverride,
       input.sortOrder,
       input.id,
@@ -997,8 +1007,8 @@ export async function upsertVariationIngredient(db: D1Database, input: {
 
   await exec(
     db,
-    `INSERT INTO variation_ingredients (variation_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, display_unit_override, sort_order)
-     SELECT v.id, ?, ?, ?, ?, ?
+    `INSERT INTO variation_ingredients (variation_id, ingredient_id, amount_grams_per_base, amount_ml_per_base, amount_units_per_base, display_unit_override, sort_order)
+     SELECT v.id, ?, ?, ?, ?, ?, ?
      FROM variations v
      JOIN ingredients i ON i.id = ?
      WHERE v.id = ? AND i.id = ?
@@ -1009,11 +1019,13 @@ export async function upsertVariationIngredient(db: D1Database, input: {
      ON CONFLICT(variation_id, ingredient_id) DO UPDATE SET
        amount_grams_per_base = excluded.amount_grams_per_base,
        amount_ml_per_base = excluded.amount_ml_per_base,
+       amount_units_per_base = excluded.amount_units_per_base,
        display_unit_override = excluded.display_unit_override,
        sort_order = excluded.sort_order`,
     input.ingredientId,
     input.amountGramsPerBase,
     input.amountMlPerBase,
+    input.amountUnitsPerBase,
     input.displayUnitOverride,
     input.sortOrder,
     input.ingredientId,
@@ -1162,6 +1174,7 @@ export async function seedDemoData(db: D1Database, actorUserId?: string | null) 
     ingredientId: saltId,
     amountGramsPerBase: 12,
     amountMlPerBase: null,
+    amountUnitsPerBase: null,
     displayUnitOverride: 'tsp',
     sortOrder: 1
   }, actor);
@@ -1170,6 +1183,7 @@ export async function seedDemoData(db: D1Database, actorUserId?: string | null) 
     ingredientId: pepperId,
     amountGramsPerBase: 6,
     amountMlPerBase: null,
+    amountUnitsPerBase: null,
     displayUnitOverride: 'tsp',
     sortOrder: 2
   }, actor);
@@ -1178,6 +1192,7 @@ export async function seedDemoData(db: D1Database, actorUserId?: string | null) 
     ingredientId: garlicId,
     amountGramsPerBase: 4,
     amountMlPerBase: null,
+    amountUnitsPerBase: null,
     displayUnitOverride: 'tsp',
     sortOrder: 3
   }, actor);
@@ -1221,6 +1236,7 @@ function mergeIngredientRows(
       ingredientName: override.ingredientName,
       amountGramsPerBase: override.amountGramsPerBase,
       amountMlPerBase: override.amountMlPerBase,
+      amountUnitsPerBase: override.amountUnitsPerBase,
       defaultDisplayUnit: override.defaultDisplayUnit,
       displayUnitOverride: override.displayUnitOverride ?? base?.displayUnitOverride ?? null,
       gramsPerMl: override.gramsPerMl,

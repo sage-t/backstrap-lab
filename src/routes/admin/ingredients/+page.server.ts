@@ -3,12 +3,12 @@ import { ensureIngredient, listIngredients, updateIngredientDisplayUnit } from '
 import type { DisplayUnit } from '$lib/scaling';
 import { requireUserId } from '$lib/server/auth';
 
-const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp'].includes(value);
+const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp', 'unit'].includes(value);
 type DisplayUnitInput = DisplayUnit | 'lb' | 'oz';
 
 function parseDisplayUnitInput(value: string): DisplayUnit {
   const unit = value.trim().toLowerCase() as DisplayUnitInput;
-  if (unit === 'lb' || unit === 'oz') return 'g';
+  if (unit === 'lb' || unit === 'oz' || unit === 'unit') return 'g';
   return isDisplayUnit(unit) ? unit : 'g';
 }
 
