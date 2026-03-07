@@ -39,6 +39,7 @@
 
   let previewMeatGrams = $state(0);
   let ingredientQuery = $state('');
+  let showIngredientResults = $state(false);
   let showDeleteDialog = $state(false);
   let deleteTargetForm: HTMLFormElement | null = null;
   let deleteSubmitter: HTMLButtonElement | null = null;
@@ -54,6 +55,11 @@
   });
 
   const matchedIngredientId = $derived.by(() => ingredientByName.get(ingredientQuery.trim().toLowerCase()) ?? 0);
+  const ingredientMatches = $derived.by(() => {
+    const query = ingredientQuery.trim().toLowerCase();
+    if (!query) return [];
+    return ingredients.filter((ingredient) => ingredient.name.toLowerCase().includes(query)).slice(0, 8);
+  });
 
   const previewRows = $derived.by(() => {
     const scaled = scaleIngredients({
@@ -99,6 +105,18 @@
     if (!formEl) return;
     const input = formEl.querySelector<HTMLInputElement>('input[name=\"sort_order\"]');
     if (input) input.value = String(nextOrder);
+  }
+
+  function pickIngredient(name: string) {
+    ingredientQuery = name;
+    showIngredientResults = false;
+  }
+
+  function onIngredientBlur() {
+    // Let suggestion click fire before hiding results.
+    setTimeout(() => {
+      showIngredientResults = false;
+    }, 100);
   }
 </script>
 
@@ -263,17 +281,32 @@
             list="ingredient-options"
             bind:value={ingredientQuery}
             placeholder="e.g. kosher salt"
+            autocomplete="off"
             required
+            on:focus={() => (showIngredientResults = true)}
+            on:input={() => (showIngredientResults = true)}
+            on:blur={onIngredientBlur}
           />
           <datalist id="ingredient-options">
             {#each ingredients as ingredient}
               <option value={ingredient.name}></option>
             {/each}
           </datalist>
-          {#if matchedIngredientId}
-            <span class="muted small">Using existing ingredient</span>
-          {:else}
-            <span class="muted small">Creating new ingredient</span>
+          {#if showIngredientResults && ingredientMatches.length > 0}
+            <ul class="ingredient-results">
+              {#each ingredientMatches as ingredient}
+                <li>
+                  <button
+                    type="button"
+                    class="ingredient-result-btn"
+                    on:mousedown={(event) => event.preventDefault()}
+                    on:click={() => pickIngredient(ingredient.name)}
+                  >
+                    {ingredient.name}
+                  </button>
+                </li>
+              {/each}
+            </ul>
           {/if}
         </label>
 
@@ -289,6 +322,15 @@
           </select>
         </label>
       </div>
+      {#if ingredientQuery.trim().length > 0}
+        <p class="muted small ingredient-match-status">
+          {#if matchedIngredientId}
+            Using existing ingredient and its saved conversion defaults.
+          {:else}
+            No exact match found. This will create a new ingredient.
+          {/if}
+        </p>
+      {/if}
     </section>
 
     <input type="hidden" name="ingredient_id" value={matchedIngredientId || ''} />
@@ -467,7 +509,7 @@
     display: grid;
     gap: var(--space-3);
     grid-template-columns: minmax(260px, 2fr) minmax(220px, 1fr);
-    align-items: end;
+    align-items: start;
   }
 
   .grid-ratio {
@@ -487,6 +529,39 @@
 
   .add-footer label {
     width: min(220px, 100%);
+  }
+
+  .ingredient-results {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    max-height: 220px;
+    overflow: auto;
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    gap: 2px;
+  }
+
+  .ingredient-result-btn {
+    width: 100%;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+    padding: 7px 8px;
+    font-weight: 500;
+  }
+
+  .ingredient-result-btn:hover {
+    background: var(--panel-soft);
+    border-color: transparent;
+  }
+
+  .ingredient-match-status {
+    margin-top: calc(var(--space-1) * -1);
   }
 
   .empty-state {
