@@ -278,20 +278,18 @@
         <label>
           Ingredient name
           <input
-            list="ingredient-options"
             bind:value={ingredientQuery}
             placeholder="e.g. kosher salt"
             autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            aria-autocomplete="list"
             required
             on:focus={() => (showIngredientResults = true)}
             on:input={() => (showIngredientResults = true)}
             on:blur={onIngredientBlur}
           />
-          <datalist id="ingredient-options">
-            {#each ingredients as ingredient}
-              <option value={ingredient.name}></option>
-            {/each}
-          </datalist>
           {#if showIngredientResults && ingredientMatches.length > 0}
             <ul class="ingredient-results">
               {#each ingredientMatches as ingredient}
