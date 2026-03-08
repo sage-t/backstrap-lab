@@ -64,7 +64,7 @@
 
   $effect(() => {
     orderedRows = [...recipeIngredients];
-    reorderIdsPayload = JSON.stringify(recipeIngredients.map((row) => row.id));
+    reorderIdsPayload = JSON.stringify(recipeIngredients.map((row) => row.ingredient_id));
   });
 
   $effect(() => {
@@ -179,7 +179,7 @@
     next.splice(toIndex, 0, moved);
     const reordered = next.map((row, index) => ({ ...row, sort_order: index + 1 }));
     orderedRows = reordered;
-    const orderedIdsJson = JSON.stringify(reordered.map((row) => row.id));
+    const orderedIdsJson = JSON.stringify(reordered.map((row) => row.ingredient_id));
     reorderIdsPayload = orderedIdsJson;
     if (reorderFormEl) {
       const hidden = reorderFormEl.querySelector<HTMLInputElement>('input[name="ordered_ids"]');

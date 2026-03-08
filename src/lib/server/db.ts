@@ -632,31 +632,40 @@ export async function deleteRecipeIngredient(
 export async function reorderRecipeIngredients(
   db: D1Database,
   recipeId: number,
-  orderedIds: number[],
+  orderedIngredientIds: number[],
   actorUserId?: string | null
 ) {
   const revisionId = await forkCurrentRevision(db, recipeId, actorUserId);
-  if (orderedIds.length === 0) return;
+  if (orderedIngredientIds.length === 0) return;
 
-  const currentRows = await queryAll<{ id: number }>(
+  const currentRows = await queryAll<{ id: number; ingredient_id: number }>(
     db,
-    `SELECT id
+    `SELECT id, ingredient_id
      FROM recipe_revision_ingredients
      WHERE recipe_revision_id = ?
      ORDER BY sort_order ASC, id ASC`,
     revisionId
   );
-  const currentIds = currentRows.map((row) => row.id);
-  const currentIdSet = new Set(currentIds);
-  const dedupedRequested = Array.from(
-    new Set(
-      orderedIds
-        .map((id) => Math.trunc(Number(id)))
-        .filter((id) => Number.isFinite(id) && id > 0 && currentIdSet.has(id))
-    )
-  );
-  const remainingIds = currentIds.filter((id) => !dedupedRequested.includes(id));
-  const finalOrder = [...dedupedRequested, ...remainingIds];
+  const buckets = new Map<number, number[]>();
+  for (const row of currentRows) {
+    const queue = buckets.get(row.ingredient_id) ?? [];
+    queue.push(row.id);
+    buckets.set(row.ingredient_id, queue);
+  }
+
+  const finalOrder: number[] = [];
+  for (const ingredientId of orderedIngredientIds) {
+    const normalized = Math.trunc(Number(ingredientId));
+    if (!Number.isFinite(normalized) || normalized <= 0) continue;
+    const queue = buckets.get(normalized);
+    if (!queue || queue.length === 0) continue;
+    const rowId = queue.shift();
+    if (rowId) finalOrder.push(rowId);
+  }
+
+  for (const queue of buckets.values()) {
+    for (const rowId of queue) finalOrder.push(rowId);
+  }
 
   for (let index = 0; index < finalOrder.length; index += 1) {
     await exec(
