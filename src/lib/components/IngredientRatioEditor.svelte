@@ -13,6 +13,8 @@
   import { enhanceForm } from '$lib/ui/enhance-form';
 
   const GRAMS_PER_LB = 453.59237;
+  type QuickAmountUnit = 'g' | 'lb' | 'oz' | 'ml' | 'tsp' | 'tbsp' | 'cup' | 'unit';
+  type RatioType = 'g' | 'ml' | 'unit';
 
   let {
     ingredients,
@@ -42,6 +44,9 @@
 
   let previewMeatInput = $state(0);
   let ingredientQuery = $state('');
+  let addAmountUnit = $state<QuickAmountUnit>('g');
+  let addAmountUnitInitialized = $state(false);
+  let addRatioTypeOverride = $state<'' | RatioType>('');
   let showIngredientResults = $state(false);
   let showDeleteDialog = $state(false);
   let deleteTargetForm: HTMLFormElement | null = null;
@@ -61,6 +66,12 @@
     previewMeatInput = recipeBaseMeatGrams;
   });
 
+  $effect(() => {
+    if (addAmountUnitInitialized) return;
+    addAmountUnit = measurementPrefs.weightPreference === 'imperial_lb_oz' ? 'lb' : 'g';
+    addAmountUnitInitialized = true;
+  });
+
   const ingredientByName = $derived.by(() => {
     const map = new Map<string, number>();
     for (const ingredient of ingredients) map.set(ingredient.name.toLowerCase(), ingredient.id);
@@ -73,6 +84,10 @@
     if (!query) return [];
     return ingredients.filter((ingredient) => ingredient.name.toLowerCase().includes(query)).slice(0, 8);
   });
+  const inferredAddRatioType = $derived.by(() => inferRatioTypeFromUnit(addAmountUnit));
+  const effectiveAddRatioType = $derived.by(() =>
+    addRatioTypeOverride || inferredAddRatioType
+  );
 
   const previewRows = $derived.by(() => {
     const scaled = scaleIngredients({
@@ -132,17 +147,32 @@
       showIngredientResults = false;
     }, 100);
   }
+
+  function inferRatioTypeFromUnit(unit: string): RatioType {
+    const normalized = unit.toLowerCase();
+    if (normalized === 'g' || normalized === 'lb' || normalized === 'oz') return 'g';
+    if (
+      normalized === 'ml' ||
+      normalized === 'tsp' ||
+      normalized === 'tbsp' ||
+      normalized === 'cup'
+    ) {
+      return 'ml';
+    }
+    return 'unit';
+  }
 </script>
 
 <section class="card stack">
   <header class="section-head">
     <h2>Ingredient Ratios</h2>
     <p class="muted">
-      Use grams/ml per base. Quick preview below shows what the blend becomes at different meat weights.
+      Use grams/ml/units per base. Quick preview below shows what the blend becomes at different meat weights.
     </p>
     <details class="field-guide">
       <summary>Ingredient Input Help</summary>
-      <p><strong>Ratio type</strong> controls storage (`grams/base` or `ml/base`).</p>
+      <p><strong>Quick add</strong> auto-detects storage type from unit (mass/volume/unit).</p>
+      <p><strong>Ratio type</strong> controls storage (`grams/base`, `ml/base`, or `units/base`).</p>
       <p><strong>Amount unit</strong> is only for entry; values are converted on save.</p>
       <p><strong>units/base</strong> is for count-style items (cloves, pieces) that still scale.</p>
       <p><strong>Display unit override</strong> changes UI display only, not stored ratios.</p>
@@ -230,6 +260,7 @@
               <option value="ml" selected={row.amount_grams_per_base === null && row.amount_units_per_base === null}>ml</option>
               <option value="tsp">tsp</option>
               <option value="tbsp">tbsp</option>
+              <option value="cup">cup</option>
               <option value="unit" selected={row.amount_units_per_base !== null}>unit</option>
             </select>
           </label>
@@ -331,18 +362,25 @@
           {/if}
         </label>
 
-        <label>
-          New ingredient default unit
-          <select name="new_ingredient_unit">
-            <option value="g">g</option>
-            <option value="lb">lb (stored as g)</option>
-            <option value="oz">oz (stored as g)</option>
-            <option value="ml">ml</option>
-            <option value="tsp">tsp</option>
-            <option value="tbsp">tbsp</option>
-            <option value="unit">unit (stored as g)</option>
-          </select>
-        </label>
+        {#if matchedIngredientId}
+          <div class="existing-ingredient-note">
+            <p class="muted small">Existing ingredient selected.</p>
+            <p class="muted small">Its saved default unit and densities will be reused.</p>
+          </div>
+        {:else}
+          <label>
+            New ingredient default unit
+            <select name="new_ingredient_unit">
+              <option value="g">g</option>
+              <option value="lb">lb (stored as g)</option>
+              <option value="oz">oz (stored as g)</option>
+              <option value="ml">ml</option>
+              <option value="tsp">tsp</option>
+              <option value="tbsp">tbsp</option>
+              <option value="unit">unit (stored as g)</option>
+            </select>
+          </label>
+        {/if}
       </div>
       {#if ingredientQuery.trim().length > 0}
         <p class="muted small ingredient-match-status">
@@ -357,22 +395,14 @@
 
     <input type="hidden" name="ingredient_id" value={matchedIngredientId || ''} />
     <input type="hidden" name="new_ingredient_name" value={matchedIngredientId ? '' : ingredientQuery} />
+    <input type="hidden" name="ratio_type" value={effectiveAddRatioType} />
 
     <section class="add-block stack">
       <div class="add-block-head">
-        <h4>2. Ratio setup</h4>
-        <p class="muted small">Amount is saved per recipe base meat amount.</p>
+        <h4>2. Quick amount</h4>
+        <p class="muted small">Enter what you have. Ratio type is auto-detected from unit.</p>
       </div>
-      <div class="grid-ratio">
-        <label>
-          Ratio type
-          <select name="ratio_type">
-            <option value="g">grams/base</option>
-            <option value="ml">ml/base</option>
-            <option value="unit">units/base</option>
-          </select>
-        </label>
-
+      <div class="grid-quick-ratio">
         <label>
           Amount per base
           <input name="amount" type="number" step="0.01" required />
@@ -387,22 +417,40 @@
             <option value="ml">ml</option>
             <option value="tsp">tsp</option>
             <option value="tbsp">tbsp</option>
-            <option value="unit">unit</option>
-          </select>
-        </label>
-
-        <label>
-          Display unit override
-          <select name="display_unit_override">
-            <option value="">default</option>
-            <option value="g">g</option>
-            <option value="ml">ml</option>
-            <option value="tsp">tsp</option>
-            <option value="tbsp">tbsp</option>
-            <option value="unit">unit</option>
+            <option value="cup">cup</option>
+            <option value="unit">unit / item</option>
           </select>
         </label>
       </div>
+      <p class="muted small quick-hint">
+        Stored as <strong>{effectiveAddRatioType === 'g' ? 'grams/base' : effectiveAddRatioType === 'ml' ? 'ml/base' : 'units/base'}</strong>.
+      </p>
+      <details class="add-advanced">
+        <summary>Advanced options</summary>
+        <div class="grid-ratio">
+          <label>
+            Ratio type override
+            <select bind:value={addRatioTypeOverride}>
+              <option value="">Auto from unit ({inferredAddRatioType}/base)</option>
+              <option value="g">grams/base</option>
+              <option value="ml">ml/base</option>
+              <option value="unit">units/base</option>
+            </select>
+          </label>
+
+          <label>
+            Display unit override
+            <select name="display_unit_override">
+              <option value="">default</option>
+              <option value="g">g</option>
+              <option value="ml">ml</option>
+              <option value="tsp">tsp</option>
+              <option value="tbsp">tbsp</option>
+              <option value="unit">unit</option>
+            </select>
+          </label>
+        </div>
+      </details>
     </section>
 
     <div class="add-footer">
@@ -537,11 +585,45 @@
     align-items: start;
   }
 
+  .existing-ingredient-note {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel-soft);
+    padding: 10px 12px;
+    display: grid;
+    gap: 2px;
+    min-height: 44px;
+    align-content: center;
+  }
+
   .grid-ratio {
     display: grid;
     gap: var(--space-3);
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: end;
+  }
+
+  .grid-quick-ratio {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
+    align-items: end;
+  }
+
+  .quick-hint {
+    margin: 0;
+  }
+
+  .add-advanced {
+    border-top: 1px dashed var(--border);
+    padding-top: var(--space-3);
+  }
+
+  .add-advanced summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-weight: 650;
+    margin-bottom: var(--space-3);
   }
 
   .add-footer {
@@ -606,7 +688,8 @@
 
   @media (max-width: 900px) {
     .grid-ingredient,
-    .grid-ratio {
+    .grid-ratio,
+    .grid-quick-ratio {
       grid-template-columns: 1fr;
     }
 

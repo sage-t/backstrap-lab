@@ -20,12 +20,13 @@ import { normalizeUserId, requireUserId } from '$lib/server/auth';
 const isDisplayUnit = (value: string): value is DisplayUnit => ['g', 'ml', 'tsp', 'tbsp', 'unit'].includes(value);
 type DisplayUnitInput = DisplayUnit | 'lb' | 'oz';
 type RatioType = 'g' | 'ml' | 'unit';
-type AmountInputUnit = 'g' | 'lb' | 'oz' | 'ml' | 'tsp' | 'tbsp' | 'unit';
+type AmountInputUnit = 'g' | 'lb' | 'oz' | 'ml' | 'tsp' | 'tbsp' | 'cup' | 'unit';
 
 const GRAMS_PER_LB = 453.59237;
 const GRAMS_PER_OZ = 28.349523125;
 const ML_PER_TSP = 4.92892;
 const ML_PER_TBSP = ML_PER_TSP * 3;
+const ML_PER_CUP = 240;
 
 function parseDisplayUnitInput(value: string): DisplayUnit {
   const unit = value.trim().toLowerCase() as DisplayUnitInput;
@@ -54,7 +55,8 @@ function parseRatioAmounts(
     if (unit === 'ml') return { amountGramsPerBase: null, amountMlPerBase: amount, amountUnitsPerBase: null };
     if (unit === 'tsp') return { amountGramsPerBase: null, amountMlPerBase: amount * ML_PER_TSP, amountUnitsPerBase: null };
     if (unit === 'tbsp') return { amountGramsPerBase: null, amountMlPerBase: amount * ML_PER_TBSP, amountUnitsPerBase: null };
-    throw new Error('For ml/base ratios, use unit ml, tsp, or tbsp');
+    if (unit === 'cup') return { amountGramsPerBase: null, amountMlPerBase: amount * ML_PER_CUP, amountUnitsPerBase: null };
+    throw new Error('For ml/base ratios, use unit ml, tsp, tbsp, or cup');
   }
 
   if (ratioType === 'unit') {
@@ -62,6 +64,13 @@ function parseRatioAmounts(
   }
 
   throw new Error('Invalid ratio type');
+}
+
+function inferRatioTypeFromAmountUnit(rawUnit: string): RatioType {
+  const unit = rawUnit.trim().toLowerCase();
+  if (unit === 'g' || unit === 'lb' || unit === 'oz') return 'g';
+  if (unit === 'ml' || unit === 'tsp' || unit === 'tbsp' || unit === 'cup') return 'ml';
+  return 'unit';
 }
 
 export const load: PageServerLoad = async ({ params, platform, locals }) => {
@@ -128,9 +137,13 @@ export const actions: Actions = {
     const ingredientIdRaw = String(form.get('ingredient_id') ?? '').trim();
     const newName = String(form.get('new_ingredient_name') ?? '').trim();
     const unitRaw = String(form.get('new_ingredient_unit') ?? 'g');
-    const ratioType = String(form.get('ratio_type') ?? 'g') as RatioType;
+    const ratioTypeRaw = String(form.get('ratio_type') ?? '').trim().toLowerCase();
     const amount = Number(form.get('amount') ?? NaN);
-    const amountUnit = String(form.get('amount_input_unit') ?? (ratioType === 'ml' ? 'ml' : ratioType === 'unit' ? 'unit' : 'g')).trim();
+    const amountUnit = String(form.get('amount_input_unit') ?? '').trim().toLowerCase();
+    const ratioType: RatioType =
+      ratioTypeRaw === 'g' || ratioTypeRaw === 'ml' || ratioTypeRaw === 'unit'
+        ? ratioTypeRaw
+        : inferRatioTypeFromAmountUnit(amountUnit);
     const overrideRaw = String(form.get('display_unit_override') ?? '').trim();
 
     let ingredientId = ingredientIdRaw ? Number(ingredientIdRaw) : 0;
@@ -147,7 +160,11 @@ export const actions: Actions = {
     const displayUnitOverride = isDisplayUnit(overrideRaw) ? overrideRaw : null;
     let parsedAmounts: { amountGramsPerBase: number | null; amountMlPerBase: number | null; amountUnitsPerBase: number | null };
     try {
-      parsedAmounts = parseRatioAmounts(ratioType, amount, amountUnit);
+      parsedAmounts = parseRatioAmounts(
+        ratioType,
+        amount,
+        amountUnit || (ratioType === 'ml' ? 'ml' : ratioType === 'unit' ? 'unit' : 'g')
+      );
     } catch (err) {
       return { success: false, message: err instanceof Error ? err.message : 'Invalid amount' };
     }
@@ -171,7 +188,7 @@ export const actions: Actions = {
     const form = await request.formData();
     const ratioType = String(form.get('ratio_type') ?? 'g') as RatioType;
     const amount = Number(form.get('amount') ?? NaN);
-    const amountUnit = String(form.get('amount_input_unit') ?? (ratioType === 'ml' ? 'ml' : ratioType === 'unit' ? 'unit' : 'g')).trim();
+    const amountUnit = String(form.get('amount_input_unit') ?? (ratioType === 'ml' ? 'ml' : ratioType === 'unit' ? 'unit' : 'g')).trim().toLowerCase();
     const overrideRaw = String(form.get('display_unit_override') ?? '').trim();
     let parsedAmounts: { amountGramsPerBase: number | null; amountMlPerBase: number | null; amountUnitsPerBase: number | null };
     try {
