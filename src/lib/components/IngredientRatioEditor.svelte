@@ -177,9 +177,15 @@
     const next = [...orderedRows];
     const [moved] = next.splice(fromIndex, 1);
     next.splice(toIndex, 0, moved);
-    orderedRows = next.map((row, index) => ({ ...row, sort_order: index + 1 }));
-    reorderIdsPayload = JSON.stringify(orderedRows.map((row) => row.id));
-    reorderFormEl?.requestSubmit();
+    const reordered = next.map((row, index) => ({ ...row, sort_order: index + 1 }));
+    orderedRows = reordered;
+    const orderedIdsJson = JSON.stringify(reordered.map((row) => row.id));
+    reorderIdsPayload = orderedIdsJson;
+    if (reorderFormEl) {
+      const hidden = reorderFormEl.querySelector<HTMLInputElement>('input[name="ordered_ids"]');
+      if (hidden) hidden.value = orderedIdsJson;
+      reorderFormEl.requestSubmit();
+    }
   }
 
   function inferRatioTypeFromUnit(unit: string): RatioType {
