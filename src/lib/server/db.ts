@@ -629,6 +629,48 @@ export async function deleteRecipeIngredient(
   );
 }
 
+export async function reorderRecipeIngredients(
+  db: D1Database,
+  recipeId: number,
+  orderedIds: number[],
+  actorUserId?: string | null
+) {
+  const revisionId = await forkCurrentRevision(db, recipeId, actorUserId);
+  if (orderedIds.length === 0) return;
+
+  const currentRows = await queryAll<{ id: number }>(
+    db,
+    `SELECT id
+     FROM recipe_revision_ingredients
+     WHERE recipe_revision_id = ?
+     ORDER BY sort_order ASC, id ASC`,
+    revisionId
+  );
+  const currentIds = currentRows.map((row) => row.id);
+  const currentIdSet = new Set(currentIds);
+  const dedupedRequested = Array.from(
+    new Set(
+      orderedIds
+        .map((id) => Math.trunc(Number(id)))
+        .filter((id) => Number.isFinite(id) && id > 0 && currentIdSet.has(id))
+    )
+  );
+  const remainingIds = currentIds.filter((id) => !dedupedRequested.includes(id));
+  const finalOrder = [...dedupedRequested, ...remainingIds];
+
+  for (let index = 0; index < finalOrder.length; index += 1) {
+    await exec(
+      db,
+      `UPDATE recipe_revision_ingredients
+       SET sort_order = ?
+       WHERE id = ? AND recipe_revision_id = ?`,
+      index + 1,
+      finalOrder[index],
+      revisionId
+    );
+  }
+}
+
 export async function createVariation(db: D1Database, input: {
   recipeId: number;
   cookedAt: string;

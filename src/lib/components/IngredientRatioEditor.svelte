@@ -47,8 +47,12 @@
   let addAmountUnit = $state<QuickAmountUnit>('g');
   let addAmountUnitInitialized = $state(false);
   let addRatioTypeOverride = $state<'' | RatioType>('');
+  let orderedRows = $state<typeof recipeIngredients>([]);
   let showIngredientResults = $state(false);
   let showDeleteDialog = $state(false);
+  let reorderFormEl = $state<HTMLFormElement | null>(null);
+  let reorderIdsPayload = $state('[]');
+  let draggingIngredientId = $state<number | null>(null);
   let deleteTargetForm: HTMLFormElement | null = null;
   let deleteSubmitter: HTMLButtonElement | null = null;
   const useImperialPreviewInput = $derived(measurementPrefs.weightPreference === 'imperial_lb_oz');
@@ -56,6 +60,11 @@
     const amount = Number(previewMeatInput) || 0;
     if (useImperialPreviewInput) return Math.max(1, Math.round(amount * GRAMS_PER_LB));
     return Math.max(1, Math.round(amount));
+  });
+
+  $effect(() => {
+    orderedRows = [...recipeIngredients];
+    reorderIdsPayload = JSON.stringify(recipeIngredients.map((row) => row.id));
   });
 
   $effect(() => {
@@ -93,7 +102,7 @@
     const scaled = scaleIngredients({
       baseMeatGrams: Math.max(1, Number(recipeBaseMeatGrams) || 1),
       targetMeatGrams: Math.max(1, Number(previewMeatGrams) || 1),
-      rows: recipeIngredients.map((row) => ({
+      rows: orderedRows.map((row) => ({
         ingredientId: row.ingredient_id,
         ingredientName: row.name,
         amountGramsPerBase: row.amount_grams_per_base,
@@ -128,14 +137,6 @@
     showDeleteDialog = true;
   }
 
-  function setSortOrder(event: MouseEvent, nextOrder: number) {
-    const submitter = event.currentTarget as HTMLButtonElement;
-    const formEl = submitter.form;
-    if (!formEl) return;
-    const input = formEl.querySelector<HTMLInputElement>('input[name=\"sort_order\"]');
-    if (input) input.value = String(nextOrder);
-  }
-
   function pickIngredient(name: string) {
     ingredientQuery = name;
     showIngredientResults = false;
@@ -146,6 +147,39 @@
     setTimeout(() => {
       showIngredientResults = false;
     }, 100);
+  }
+
+  function onDragStart(event: DragEvent, ingredientId: number) {
+    draggingIngredientId = ingredientId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', String(ingredientId));
+    }
+  }
+
+  function onDragOver(event: DragEvent) {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  function onDrop(event: DragEvent, targetIngredientId: number) {
+    event.preventDefault();
+    const draggedFromTransfer = Number(event.dataTransfer?.getData('text/plain') ?? '0');
+    const sourceIngredientId =
+      draggingIngredientId ?? (Number.isFinite(draggedFromTransfer) ? draggedFromTransfer : 0);
+    draggingIngredientId = null;
+    if (!sourceIngredientId || sourceIngredientId === targetIngredientId) return;
+
+    const fromIndex = orderedRows.findIndex((row) => row.id === sourceIngredientId);
+    const toIndex = orderedRows.findIndex((row) => row.id === targetIngredientId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const next = [...orderedRows];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    orderedRows = next.map((row, index) => ({ ...row, sort_order: index + 1 }));
+    reorderIdsPayload = JSON.stringify(orderedRows.map((row) => row.id));
+    reorderFormEl?.requestSubmit();
   }
 
   function inferRatioTypeFromUnit(unit: string): RatioType {
@@ -217,8 +251,15 @@
     </section>
   {:else}
     <div class="ratio-grid">
-      {#each recipeIngredients as row, index}
-        <form method="POST" action="?/updateIngredient" class="ingredient-row" use:enhanceForm={{ successMessage: 'Ingredient updated' }}>
+      {#each orderedRows as row}
+        <form
+          method="POST"
+          action="?/updateIngredient"
+          class={`ingredient-row ${draggingIngredientId === row.id ? 'dragging' : ''}`}
+          use:enhanceForm={{ successMessage: 'Ingredient updated' }}
+          on:dragover={onDragOver}
+          on:drop={(event) => onDrop(event, row.id)}
+        >
           <input type="hidden" name="recipe_id" value={recipeId} />
           <input type="hidden" name="id" value={row.id} />
 
@@ -283,29 +324,17 @@
           </label>
 
           <div class="actions">
+            <button
+              type="button"
+              class="drag-handle"
+              draggable="true"
+              title="Drag to reorder"
+              on:dragstart={(event) => onDragStart(event, row.id)}
+              on:dragend={() => (draggingIngredientId = null)}
+            >
+              ⋮⋮
+            </button>
             <button type="submit">Save</button>
-            <button
-              type="submit"
-              formaction="?/updateIngredient"
-              disabled={index === 0}
-              on:click={(event) => {
-                const prev = recipeIngredients[index - 1];
-                if (prev) setSortOrder(event, prev.sort_order - 1);
-              }}
-            >
-              ↑
-            </button>
-            <button
-              type="submit"
-              formaction="?/updateIngredient"
-              disabled={index === recipeIngredients.length - 1}
-              on:click={(event) => {
-                const next = recipeIngredients[index + 1];
-                if (next) setSortOrder(event, next.sort_order + 1);
-              }}
-            >
-              ↓
-            </button>
             <button
               type="submit"
               formaction="?/deleteIngredient"
@@ -317,6 +346,15 @@
         </form>
       {/each}
     </div>
+    <form
+      method="POST"
+      action="?/reorderIngredients"
+      bind:this={reorderFormEl}
+      class="reorder-form"
+      use:enhanceForm={{ successMessage: 'Ingredient order updated' }}
+    >
+      <input type="hidden" name="ordered_ids" bind:value={reorderIdsPayload} />
+    </form>
   {/if}
 
   <form method="POST" action="?/addIngredient" class="stack add-form" use:enhanceForm={{ successMessage: 'Ingredient ratio added', resetOnSuccess: true }}>
@@ -545,11 +583,27 @@
     background: #fff;
   }
 
+  .ingredient-row.dragging {
+    opacity: 0.75;
+  }
+
   .actions {
     display: flex;
     align-items: center;
     gap: var(--space-1);
     flex-wrap: wrap;
+  }
+
+  .drag-handle {
+    font-size: 1rem;
+    line-height: 1;
+    padding: 6px 8px;
+    cursor: grab;
+    border-style: dashed;
+  }
+
+  .drag-handle:active {
+    cursor: grabbing;
   }
 
   .small {
@@ -669,6 +723,10 @@
 
   .ingredient-match-status {
     margin-top: calc(var(--space-1) * -1);
+  }
+
+  .reorder-form {
+    display: none;
   }
 
   .empty-state {

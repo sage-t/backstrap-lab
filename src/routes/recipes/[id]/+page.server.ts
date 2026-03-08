@@ -10,6 +10,7 @@ import {
   ensureIngredient,
   getRecipeDetail,
   listIngredients,
+  reorderRecipeIngredients,
   setRecipeRating,
   updateRecipe,
   upsertRecipeIngredient
@@ -71,6 +72,27 @@ function inferRatioTypeFromAmountUnit(rawUnit: string): RatioType {
   if (unit === 'g' || unit === 'lb' || unit === 'oz') return 'g';
   if (unit === 'ml' || unit === 'tsp' || unit === 'tbsp' || unit === 'cup') return 'ml';
   return 'unit';
+}
+
+function parseOrderedIds(raw: string): number[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((value) => Math.trunc(value));
+    }
+  } catch {
+    // Accept comma-separated as fallback.
+  }
+  return trimmed
+    .split(',')
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .map((value) => Math.trunc(value));
 }
 
 export const load: PageServerLoad = async ({ params, platform, locals }) => {
@@ -219,6 +241,16 @@ export const actions: Actions = {
     const actorUserId = requireUserId(locals);
     const form = await request.formData();
     await deleteRecipeIngredient(platform.env.DB, Number(form.get('id')), Number(params.id), actorUserId);
+    return { success: true };
+  },
+
+  reorderIngredients: async ({ request, params, platform, locals }) => {
+    if (!platform?.env?.DB) return { success: false };
+    const actorUserId = requireUserId(locals);
+    const form = await request.formData();
+    const orderedIds = parseOrderedIds(String(form.get('ordered_ids') ?? ''));
+    if (orderedIds.length === 0) return { success: false, message: 'No ingredient order provided' };
+    await reorderRecipeIngredients(platform.env.DB, Number(params.id), orderedIds, actorUserId);
     return { success: true };
   },
 
