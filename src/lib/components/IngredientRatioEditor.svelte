@@ -251,7 +251,7 @@
     </section>
   {:else}
     <div class="ratio-grid">
-      {#each orderedRows as row}
+      {#each orderedRows as row (row.id)}
         <form
           method="POST"
           action="?/updateIngredient"
